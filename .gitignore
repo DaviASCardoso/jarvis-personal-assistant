@@ -1,0 +1,29 @@
+# Ambiente
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Ferramentas
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Dados locais gerados em runtime
+data/
+
+# Editores / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
