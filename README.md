@@ -49,3 +49,12 @@ ROADMAP.md      planejamento por fases
 Todas as variáveis usam o prefixo `JARVIS_` e podem ser definidas no ambiente ou
 em um arquivo `.env` na raiz do projeto. Veja [`.env.example`](.env.example) para
 a lista completa e os valores padrão.
+
+## Sobre containers
+
+Sem Docker por enquanto. O projeto roda localmente via `uv`, que já resolve o
+interpretador Python e as dependências de forma reprodutível — o principal
+motivo para containerizar um projeto pessoal neste estágio. Isso deve ser
+reconsiderado quando surgir uma razão concreta: uma dependência de sistema
+operacional específica, um serviço externo (ex.: banco de dados) que precise
+rodar isolado, ou a necessidade de implantar em outra máquina.

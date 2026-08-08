@@ -91,15 +91,15 @@ chore: initialize repository
 
 ## 0.2 — Tooling e ambiente de desenvolvimento
 
-- [ ] Definir gerenciador de dependências
-- [ ] Configurar ambiente virtual
-- [ ] Configurar formatter
-- [ ] Configurar linter
-- [ ] Configurar type checking
-- [ ] Configurar pytest
-- [ ] Configurar comandos de desenvolvimento
-- [ ] Definir estratégia inicial de Docker
-- [ ] Documentar setup local
+- [x] Definir gerenciador de dependências
+- [x] Configurar ambiente virtual
+- [x] Configurar formatter
+- [x] Configurar linter
+- [x] Configurar type checking
+- [x] Configurar pytest
+- [x] Configurar comandos de desenvolvimento
+- [x] Definir estratégia inicial de Docker
+- [x] Documentar setup local
 
 **Commit esperado:**
 
@@ -1726,7 +1726,7 @@ TTS
 | Data | Subfase | Status | Commit |
 |---|---|---|---|
 | 2026-08-08 | 0.1 | ✅ | `chore: initialize repository` |
-| — | 0.2 | ⬜ | — |
+| 2026-08-08 | 0.2 | ✅ | pendente |
 | — | 0.3 | ⬜ | — |
 | — | 0.4 | ⬜ | — |
 | — | 0.5 | ⬜ | — |

@@ -19,11 +19,15 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/jarvis"]
 
+# Pisos alinhados às versões efetivamente testadas (ver uv.lock), não aos
+# mínimos teóricos das ferramentas. O mypy leva teto de major explícito porque
+# a semântica do modo strict pode mudar entre versões major sem aviso; as
+# demais seguem semver de forma mais previsível.
 [dependency-groups]
 dev = [
-    "mypy>=1.14",
-    "pytest>=8.3",
-    "ruff>=0.9",
+    "mypy>=2.3,<3",
+    "pytest>=9.1",
+    "ruff>=0.16",
 ]
 
 [tool.ruff]
@@ -39,6 +43,7 @@ select = [
     "UP",  # pyupgrade
     "B",   # flake8-bugbear
     "SIM", # flake8-simplify
+    "RUF", # regras específicas do Ruff
 ]
 
 [tool.mypy]
@@ -48,4 +53,4 @@ strict = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --strict-markers"
+addopts = "-q --strict-markers --strict-config"
