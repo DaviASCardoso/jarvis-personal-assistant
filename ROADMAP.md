@@ -111,15 +111,15 @@ chore: establish development tooling
 
 ## 0.3 — Contratos arquiteturais
 
-- [ ] Definir princípios arquiteturais
-- [ ] Definir limites entre componentes
-- [ ] Definir regras de dependência
-- [ ] Definir contratos entre módulos
-- [ ] Definir política de desacoplamento do LLM
-- [ ] Definir política de eventos
-- [ ] Definir política de memória
-- [ ] Definir política de ferramentas
-- [ ] Definir política de segurança
+- [x] Definir princípios arquiteturais
+- [x] Definir limites entre componentes
+- [x] Definir regras de dependência
+- [x] Definir contratos entre módulos
+- [x] Definir política de desacoplamento do LLM
+- [x] Definir política de eventos
+- [x] Definir política de memória
+- [x] Definir política de ferramentas
+- [x] Definir política de segurança
 
 **Commit esperado:**
 
@@ -1727,7 +1727,7 @@ TTS
 |---|---|---|---|
 | 2026-08-08 | 0.1 | ✅ | `chore: initialize repository` |
 | 2026-08-08 | 0.2 | ✅ | pendente |
-| — | 0.3 | ⬜ | — |
+| 2026-08-08 | 0.3 | ✅ | pendente |
 | — | 0.4 | ⬜ | — |
 | — | 0.5 | ⬜ | — |
 | — | 0.6 | ⬜ | — |
