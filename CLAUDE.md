@@ -62,10 +62,20 @@ src/jarvis/
 
 tests/
 ├── test_cli.py
-└── test_config.py
+├── test_config.py
+└── test_main.py
 
 docs/
+├── README.md
+├── architecture.md
 ├── architecture-contracts.md
+├── event-system.md
+├── context-system.md
+├── memory-system.md
+├── agent-runtime.md
+├── skills.md
+├── mcp.md
+├── security.md
 └── adr/            # 0001–0006
 ```
 
@@ -99,7 +109,7 @@ cumpra:
   ser marcada concluída — regra de conclusão do `ROADMAP.md`, não uma
   preferência de estilo.
 - `tests/` hoje espelha `src/jarvis/` em estrutura plana (`test_cli.py`,
-  `test_config.py`). Não crie `tests/unit/`, `tests/integration/` ou
+  `test_config.py`, `test_main.py`). Não crie `tests/unit/`, `tests/integration/` ou
   `tests/architecture/` antes que exista necessidade concreta — mesma
   lógica da regra 11 do roadmap.
 - Nenhum teste depende de rede, banco de dados real ou serviço externo

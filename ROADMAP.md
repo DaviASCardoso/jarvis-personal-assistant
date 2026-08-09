@@ -13,7 +13,7 @@
 
 O sistema será construído em oito fases:
 
-- [ ] **Fase 0 — Foundation**
+- [x] **Fase 0 — Foundation**
 - [ ] **Fase 1 — Event System**
 - [ ] **Fase 2 — Context Engine**
 - [ ] **Fase 3 — Memory System**
@@ -202,14 +202,14 @@ test: establish project quality gates
 
 ## 0.7 — Foundation Review
 
-- [ ] Auditar estrutura do projeto
-- [ ] Auditar dependências
-- [ ] Auditar arquitetura
-- [ ] Auditar documentação
-- [ ] Auditar testes
-- [ ] Verificar reprodutibilidade do ambiente
-- [ ] Corrigir problemas encontrados
-- [ ] Confirmar Foundation como estável
+- [x] Auditar estrutura do projeto
+- [x] Auditar dependências
+- [x] Auditar arquitetura
+- [x] Auditar documentação
+- [x] Auditar testes
+- [x] Verificar reprodutibilidade do ambiente
+- [x] Corrigir problemas encontrados
+- [x] Confirmar Foundation como estável
 
 **Commit esperado:**
 
@@ -219,7 +219,7 @@ chore: complete foundation milestone
 
 ### Foundation completa
 
-- [ ] **FASE 0 CONCLUÍDA**
+- [x] **FASE 0 CONCLUÍDA**
 
 ---
 
@@ -1373,13 +1373,13 @@ release: jarvis v0.1
 **Semana 1**
 
 ```text
-[ ] Repositório
-[ ] Tooling
-[ ] Contratos
-[ ] CLAUDE.md
-[ ] Documentação
-[ ] CI
-[ ] Testes
+[x] Repositório
+[x] Tooling
+[x] Contratos
+[x] CLAUDE.md
+[x] Documentação
+[x] CI
+[x] Testes
 ```
 
 ---
@@ -1731,7 +1731,7 @@ TTS
 | 2026-08-08 | 0.4 | ✅ | pendente |
 | 2026-08-08 | 0.5 | ✅ | pendente |
 | 2026-08-09 | 0.6 | ✅ | `test: establish project quality gates` |
-| — | 0.7 | ⬜ | — |
+| 2026-08-09 | 0.7 | ✅ | `chore: complete foundation milestone` |
 | — | 1.1 | ⬜ | — |
 | — | 1.2 | ⬜ | — |
 | — | 1.3 | ⬜ | — |
