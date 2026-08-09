@@ -3,8 +3,9 @@
 Agente pessoal de IA, construído de forma incremental e orientado a eventos,
 contexto e memória.
 
-> **Status:** Fase 0 — Foundation. O projeto ainda não possui funcionalidades:
-> por enquanto existe apenas a fundação do repositório. O planejamento completo
+> **Status:** Fase 1 — Event System concluída. O Jarvis já registra acontecimentos
+> como fatos imutáveis, os persiste com deduplicação e os distribui a consumidores.
+> Contexto, memória, raciocínio e voz ainda não existem — o planejamento completo
 > está em [ROADMAP.md](ROADMAP.md).
 
 ## Requisitos
@@ -25,6 +26,21 @@ cp .env.example .env   # opcional; os defaults já funcionam
 uv run jarvis --version
 uv run jarvis info      # mostra a configuração efetiva
 ```
+
+### Eventos
+
+```bash
+# registra um acontecimento (o payload é um objeto JSON)
+uv run jarvis events emit --type email.received --source gmail-watcher \
+    --payload '{"subject": "reunião"}' --key '<msg-42@empresa.com>'
+
+# --key deriva um event_id determinístico: reemitir o mesmo fato é no-op
+uv run jarvis events list --limit 20
+uv run jarvis events list --correlation-id <id>   # a cadeia causal inteira
+```
+
+Os eventos ficam em `<JARVIS_DATA_DIR>/events.db` (por padrão `data/events.db`, já
+ignorado pelo Git). Detalhes em [`docs/event-system.md`](docs/event-system.md).
 
 ## Desenvolvimento
 

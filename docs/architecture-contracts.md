@@ -596,6 +596,10 @@ consequências completas:
   Skill, Tool, MCP Server e MCP Tool.
 - [ADR-0006](adr/0006-configuration-vs-preferences-vs-state.md) —
   Configuração vs. Secrets vs. Preferências vs. Estado.
+- [ADR-0007](adr/0007-sqlite-event-store.md) — SQLite como armazenamento do
+  Event Store (Fase 1).
+- [ADR-0008](adr/0008-synchronous-in-process-event-bus.md) — Event Bus
+  síncrono em processo (Fase 1).
 
 Decisões de campo-a-campo (schema exato de Event/Context/Memory, nomes
 exatos da taxonomia de erro) **não** viram ADR — são detalhe de contrato,

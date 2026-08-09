@@ -70,3 +70,5 @@ original fazia sentido no momento em que foi tomada.
 | [0004](0004-event-immutability-and-timestamps.md) | Imutabilidade de evento e semântica de timestamps | Accepted |
 | [0005](0005-skill-tool-mcp-distinction.md) | Distinção entre Skill, Tool, MCP Server e MCP Tool | Accepted |
 | [0006](0006-configuration-vs-preferences-vs-state.md) | Configuração vs. Secrets vs. Preferências vs. Estado | Accepted |
+| [0007](0007-sqlite-event-store.md) | SQLite como armazenamento do Event Store | Accepted |
+| [0008](0008-synchronous-in-process-event-bus.md) | Event Bus síncrono em processo | Accepted |

@@ -16,12 +16,16 @@ Esta pasta reúne a documentação técnica do Jarvis.
   observability). Definidos na subfase 0.3.
 - [`adr/`](adr/) — Architecture Decision Records: as decisões pontuais e
   difíceis de reverter que fundamentam os contratos acima.
+- [`event-system.md`](event-system.md) — **documentação de implementação**:
+  descreve o Event System que existe em `src/jarvis/events/` desde a Fase 1
+  (Event/RecordedEvent, Event Store SQLite, Event Bus, consumers,
+  correlation/causation, idempotência, comandos de CLI).
+- [`phase-1-plan.md`](phase-1-plan.md) — o plano técnico aprovado que guiou a
+  Fase 1, incluindo as decisões consideradas e as descartadas.
 - Documentação conceitual por componente, criada na subfase 0.5 — explica
   cada contrato aprovado na 0.3 sem repeti-lo e sem implementar nada ainda
   (cada componente segue sem código real até sua fase correspondente no
   [roadmap](../ROADMAP.md)):
-  - [`event-system.md`](event-system.md) — Event, Event Source, Event
-    Store, Event Consumer, correlation/causation, idempotência (Fase 1).
   - [`context-system.md`](context-system.md) — `CurrentContext`,
     `ContextSnapshot`, providers, freshness/TTL, confiança (Fase 2).
   - [`memory-system.md`](memory-system.md) — tipos de memória,

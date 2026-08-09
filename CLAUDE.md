@@ -57,34 +57,38 @@ documentos aqui — consulte-os para qualquer detalhe além do resumo abaixo.
 src/jarvis/
 ├── __init__.py    # __version__
 ├── __main__.py    # permite `python -m jarvis`
-├── cli.py         # entry point (argparse); ponto de composição atual
-└── config.py      # Settings (pydantic-settings, prefixo JARVIS_)
+├── cli.py         # entry point (argparse); composition root
+├── config.py      # Settings (pydantic-settings, prefixo JARVIS_)
+├── errors.py      # taxonomia base do Core (DomainError, InfrastructureError)
+└── events/        # Event System (Fase 1)
+    ├── event.py       # Event, RecordedEvent, JsonValue, geradores de event_id
+    ├── errors.py      # InvalidEventError, EventStoreError, Append/Read
+    ├── ports.py       # EventStore, EventConsumer (Protocols), AppendResult
+    ├── bus.py         # EventBus, RetryPolicy, DeadLetter
+    ├── publisher.py   # EventPublisher (store → bus)
+    └── adapters/      # Infrastructure: serialization, sqlite_store, logging_consumer
 
-tests/
-├── test_cli.py
-├── test_config.py
-└── test_main.py
-
+tests/               # estrutura plana; `factories.py` monta eventos de teste
 docs/
-├── README.md
-├── architecture.md
-├── architecture-contracts.md
-├── event-system.md
-├── context-system.md
-├── memory-system.md
-├── agent-runtime.md
-├── skills.md
-├── mcp.md
-├── security.md
-└── adr/            # 0001–0006
+├── README.md · architecture.md · architecture-contracts.md
+├── phase-1-plan.md          # plano aprovado da Fase 1
+├── event-system.md          # documentação de implementação (Fase 1)
+├── context-system.md · memory-system.md · agent-runtime.md
+├── skills.md · mcp.md · security.md   # ainda conceituais
+└── adr/                     # 0001–0008
 ```
 
-O projeto está na Fase 0 (Foundation): não há Event System, Context Engine,
-Memory, Agent Runtime, Skills, MCP ou Voice implementados ainda. `cli.py` é
-hoje o único ponto de composição (carrega `Settings` e imprime). Não crie
-diretórios ou módulos para representar componentes que ainda não têm
-comportamento real — ver regra 11 do `ROADMAP.md` ("Não adicionar
-infraestrutura complexa sem necessidade concreta").
+O projeto concluiu a Fase 1: existe Event System real (domínio, bus, store SQLite,
+consumers, CLI). **Não** há Context Engine, Memory, Agent Runtime, Skills, MCP ou
+Voice — esses seguem sem código. `cli.py` é o composition root: único módulo que
+conhece Core, Infrastructure e Interfaces ao mesmo tempo.
+
+O padrão estabelecido na Fase 1 para um componente novo é `src/jarvis/<componente>/`
+com módulos de Core na raiz e um subpacote `adapters/` — **não** a separação física
+global em `domain/`/`application/`/`infrastructure/`, que continua proibida (§1).
+Não crie diretórios ou módulos para componentes que ainda não têm comportamento
+real — ver regra 11 do `ROADMAP.md` ("Não adicionar infraestrutura complexa sem
+necessidade concreta").
 
 ## 3. Convenções de código
 

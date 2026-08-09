@@ -8,8 +8,10 @@
 > arquitetura. Este documento **não redefine** contrato nenhum: ele decide *como*
 > materializar em código o que já está decidido.
 >
-> **Estado:** plano aprovado, implementação pendente. Enquanto a Fase 1 não for
-> executada, nada descrito aqui existe em `src/`.
+> **Estado:** executado. A Fase 1 foi implementada conforme este plano; os poucos
+> desvios estão registrados na §17. Para o que existe hoje no código, a referência
+> é [`event-system.md`](event-system.md) — este documento fica como registro das
+> decisões e das alternativas descartadas.
 
 ---
 
@@ -796,3 +798,19 @@ System: bus assíncrono, broker externo, dead-letter queue persistente, leitura 
 offset/cursor, paginação, busca textual, migrações de schema, upcasting de
 `schema_version`, event sources reais (Gmail etc.) e qualquer port sem consumidor
 nesta fase.
+
+---
+
+## 17. Desvios em relação ao plano
+
+Todos pequenos, reversíveis e dentro da autonomia prevista em `PHASE-1.md §27`
+("nomes de arquivos", "organização interna", "escolhas triviais de teste").
+
+| Desvio | Motivo |
+|---|---|
+| `tests/factories.py` acrescentado | Construtores de `Event`/`RecordedEvent` com defaults válidos, compartilhados por seis arquivos de teste; evita repetir o envelope inteiro quando só um campo importa. Módulo plano em `tests/`, sem subdiretório novo. |
+| `tests/test_events_logging_consumer.py` como arquivo próprio | O plano previa testar o `LoggingEventConsumer` junto do bus. Separar mantém cada arquivo espelhando um módulo e deixa o commit da subfase 1.4 autocontido. |
+| `payload_fingerprint` renomeado para `event_fingerprint` | O resumo cobre o envelope inteiro (tipo, tempos, origem, correlação, payload e metadata), não só o payload; o nome antigo descrevia menos do que a função faz. |
+| `SqliteEventStore` recebe um `clock` injetável | Permite verificar que `recorded_at` é atribuído pelo store e que uma duplicata preserva o `recorded_at` original, sem depender do relógio real. |
+| `Event.correlation_id` permanece tipado `str \| None` | Depois da construção nunca é nulo, mas o tipo declarado não expressa isso. Em vez de `cast`/`assert`, a garantia fica no `NOT NULL` da coluna: se a invariante quebrar, o insert falha em vez de gravar nulo. |
+| `errors.py` do Event System ficou sem `EventConsumerError` | Falha de consumer não vira exceção de domínio: ela é roteada para retry/dead letter pelo bus, então uma classe de erro para isso não teria consumidor. |
