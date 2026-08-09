@@ -14,7 +14,7 @@
 O sistema será construído em oito fases:
 
 - [x] **Fase 0 — Foundation**
-- [ ] **Fase 1 — Event System**
+- [x] **Fase 1 — Event System**
 - [ ] **Fase 2 — Context Engine**
 - [ ] **Fase 3 — Memory System**
 - [ ] **Fase 4 — Agent Runtime**
@@ -231,16 +231,16 @@ chore: complete foundation milestone
 
 ## 1.1 — Event Domain
 
-- [ ] Definir entidade `Event`
-- [ ] Definir identificador de evento
-- [ ] Definir timestamp
-- [ ] Definir source
-- [ ] Definir event type
-- [ ] Definir payload
-- [ ] Definir correlation ID
-- [ ] Definir causation ID
-- [ ] Definir schema version
-- [ ] Definir regras de imutabilidade
+- [x] Definir entidade `Event`
+- [x] Definir identificador de evento
+- [x] Definir timestamp
+- [x] Definir source
+- [x] Definir event type
+- [x] Definir payload
+- [x] Definir correlation ID
+- [x] Definir causation ID
+- [x] Definir schema version
+- [x] Definir regras de imutabilidade
 
 **Commit esperado:**
 
@@ -252,14 +252,14 @@ feat: implement event domain
 
 ## 1.2 — Event Bus
 
-- [ ] Definir interface do Event Bus
-- [ ] Implementar `publish`
-- [ ] Implementar `subscribe`
-- [ ] Implementar consumo
-- [ ] Implementar acknowledgement
-- [ ] Implementar retry
-- [ ] Implementar tratamento de falhas
-- [ ] Criar testes
+- [x] Definir interface do Event Bus
+- [x] Implementar `publish`
+- [x] Implementar `subscribe`
+- [x] Implementar consumo
+- [x] Implementar acknowledgement
+- [x] Implementar retry
+- [x] Implementar tratamento de falhas
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -271,13 +271,13 @@ feat: implement event bus
 
 ## 1.3 — Event Store
 
-- [ ] Definir armazenamento persistente
-- [ ] Criar schema de eventos
-- [ ] Implementar persistência
-- [ ] Implementar consulta por tipo
-- [ ] Implementar consulta temporal
-- [ ] Implementar consulta por correlation ID
-- [ ] Criar testes
+- [x] Definir armazenamento persistente
+- [x] Criar schema de eventos
+- [x] Implementar persistência
+- [x] Implementar consulta por tipo
+- [x] Implementar consulta temporal
+- [x] Implementar consulta por correlation ID
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -289,12 +289,15 @@ feat: implement persistent event store
 
 ## 1.4 — Event Consumers
 
-- [ ] Criar abstração `EventConsumer`
-- [ ] Implementar consumer básico
-- [ ] Implementar processamento assíncrono quando necessário
-- [ ] Implementar retry
-- [ ] Implementar dead-letter/error handling
-- [ ] Criar testes
+- [x] Criar abstração `EventConsumer`
+- [x] Implementar consumer básico
+- [x] Implementar processamento assíncrono quando necessário — avaliado e
+      **não** necessário nesta fase (nenhum consumer é I/O-bound); o bus é
+      síncrono por decisão registrada em
+      [ADR-0008](docs/adr/0008-synchronous-in-process-event-bus.md)
+- [x] Implementar retry
+- [x] Implementar dead-letter/error handling
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -306,12 +309,12 @@ feat: implement event consumers
 
 ## 1.5 — Event System Integration
 
-- [ ] Integrar Event Domain
-- [ ] Integrar Event Bus
-- [ ] Integrar Event Store
-- [ ] Integrar Consumers
-- [ ] Criar fluxo completo
-- [ ] Testar eventos end-to-end
+- [x] Integrar Event Domain
+- [x] Integrar Event Bus
+- [x] Integrar Event Store
+- [x] Integrar Consumers
+- [x] Criar fluxo completo
+- [x] Testar eventos end-to-end
 
 **Commit esperado:**
 
@@ -321,7 +324,7 @@ feat: complete event-driven core
 
 ### Event System completo
 
-- [ ] **FASE 1 CONCLUÍDA**
+- [x] **FASE 1 CONCLUÍDA**
 
 ---
 
@@ -1389,10 +1392,10 @@ release: jarvis v0.1
 **Semana 3**
 
 ```text
-[ ] Events
-[ ] Event Bus
-[ ] Event Store
-[ ] Consumers
+[x] Events
+[x] Event Bus
+[x] Event Store
+[x] Consumers
 ```
 
 O sistema consegue perceber acontecimentos estruturados.
@@ -1732,11 +1735,11 @@ TTS
 | 2026-08-08 | 0.5 | ✅ | pendente |
 | 2026-08-09 | 0.6 | ✅ | `test: establish project quality gates` |
 | 2026-08-09 | 0.7 | ✅ | `chore: complete foundation milestone` |
-| — | 1.1 | ⬜ | — |
-| — | 1.2 | ⬜ | — |
-| — | 1.3 | ⬜ | — |
-| — | 1.4 | ⬜ | — |
-| — | 1.5 | ⬜ | — |
+| 2026-08-09 | 1.1 | ✅ | `feat: implement event domain` |
+| 2026-08-09 | 1.2 | ✅ | `feat: implement event bus` |
+| 2026-08-09 | 1.3 | ✅ | `feat: implement persistent event store` |
+| 2026-08-09 | 1.4 | ✅ | `feat: implement event consumers` |
+| 2026-08-09 | 1.5 | ✅ | `feat: complete event-driven core` |
 | — | 2.1 | ⬜ | — |
 | — | 2.2 | ⬜ | — |
 | — | 2.3 | ⬜ | — |
