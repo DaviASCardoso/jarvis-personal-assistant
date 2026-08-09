@@ -131,16 +131,16 @@ docs: establish architectural contracts
 
 ## 0.4 — CLAUDE.md e regras do agente de desenvolvimento
 
-- [ ] Criar `CLAUDE.md`
-- [ ] Documentar arquitetura
-- [ ] Documentar estrutura do projeto
-- [ ] Definir convenções de código
-- [ ] Definir regras de testes
-- [ ] Definir regras para alterações arquiteturais
-- [ ] Definir regras para criação de Skills
-- [ ] Definir regras para criação de Events
-- [ ] Definir regras para documentação
-- [ ] Definir workflow de desenvolvimento com Claude Code
+- [x] Criar `CLAUDE.md`
+- [x] Documentar arquitetura
+- [x] Documentar estrutura do projeto
+- [x] Definir convenções de código
+- [x] Definir regras de testes
+- [x] Definir regras para alterações arquiteturais
+- [x] Definir regras para criação de Skills
+- [x] Definir regras para criação de Events
+- [x] Definir regras para documentação
+- [x] Definir workflow de desenvolvimento com Claude Code
 
 **Commit esperado:**
 
@@ -1728,7 +1728,7 @@ TTS
 | 2026-08-08 | 0.1 | ✅ | `chore: initialize repository` |
 | 2026-08-08 | 0.2 | ✅ | pendente |
 | 2026-08-08 | 0.3 | ✅ | pendente |
-| — | 0.4 | ⬜ | — |
+| 2026-08-08 | 0.4 | ✅ | pendente |
 | — | 0.5 | ⬜ | — |
 | — | 0.6 | ⬜ | — |
 | — | 0.7 | ⬜ | — |
