@@ -183,14 +183,14 @@ docs: establish architectural documentation
 
 ## 0.6 — Testes, CI e Definition of Done
 
-- [ ] Definir estrutura de testes
-- [ ] Criar testes básicos
-- [ ] Configurar CI
-- [ ] Executar lint automaticamente
-- [ ] Executar type checking automaticamente
-- [ ] Executar testes automaticamente
-- [ ] Definir Definition of Done
-- [ ] Definir critérios de qualidade
+- [x] Definir estrutura de testes
+- [x] Criar testes básicos
+- [x] Configurar CI
+- [x] Executar lint automaticamente
+- [x] Executar type checking automaticamente
+- [x] Executar testes automaticamente
+- [x] Definir Definition of Done
+- [x] Definir critérios de qualidade
 
 **Commit esperado:**
 
@@ -1730,7 +1730,7 @@ TTS
 | 2026-08-08 | 0.3 | ✅ | pendente |
 | 2026-08-08 | 0.4 | ✅ | pendente |
 | 2026-08-08 | 0.5 | ✅ | pendente |
-| — | 0.6 | ⬜ | — |
+| 2026-08-09 | 0.6 | ✅ | `test: establish project quality gates` |
 | — | 0.7 | ⬜ | — |
 | — | 1.1 | ⬜ | — |
 | — | 1.2 | ⬜ | — |

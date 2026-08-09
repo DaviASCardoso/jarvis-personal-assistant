@@ -35,6 +35,9 @@ uv run ruff check .     # lint
 uv run mypy             # type checking
 ```
 
+Esses quatro comandos rodam automaticamente em CI (GitHub Actions) a cada push
+e pull request para `main` — ver [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
 ## Estrutura
 
 ```text
