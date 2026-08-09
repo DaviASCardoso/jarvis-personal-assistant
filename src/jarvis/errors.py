@@ -1,0 +1,36 @@
+"""Taxonomia de erros compartilhada pelo Core.
+
+Ver [`docs/architecture-contracts.md §13`](../../docs/architecture-contracts.md#13-error-contract):
+toda categoria de erro declara se é `retryable` (transitória) ou permanente, para
+que a lógica de retry consulte essa classificação em vez de cada componente
+inventar o próprio critério.
+
+Só as categorias com consumidor real existem aqui. As demais previstas no contrato
+(`ProviderError`, `PolicyDenied`, `UserFacingError`) serão adicionadas pelas fases
+que as introduzirem.
+"""
+
+from typing import ClassVar
+
+
+class JarvisError(Exception):
+    """Raiz de toda exceção levantada deliberadamente pelo Jarvis."""
+
+    retryable: ClassVar[bool] = False
+
+
+class DomainError(JarvisError):
+    """Violação de uma regra de domínio.
+
+    Nunca é retryable: reapresentar a mesma entrada produz exatamente o mesmo erro.
+    """
+
+
+class InfrastructureError(JarvisError):
+    """Falha em um adapter de infraestrutura (banco, filesystem, rede).
+
+    Retryable por padrão: a causa costuma ser transitória (lock, indisponibilidade
+    momentânea). Subclasses podem sobrescrever quando souberem que não é.
+    """
+
+    retryable: ClassVar[bool] = True

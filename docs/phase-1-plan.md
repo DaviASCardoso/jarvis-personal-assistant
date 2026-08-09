@@ -295,22 +295,24 @@ Nenhum. `pyproject.toml` e `uv.lock` **não** são tocados.
 ```python
 type JsonValue = str | int | float | bool | None | Sequence[JsonValue] | Mapping[str, JsonValue]
 
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Event:
     event_id: str
-    event_type: str                      # namespaced: >= 2 segmentos, ex. "email.received"
-    occurred_at: datetime                # tz-aware, normalizado para UTC
-    source: str                          # ex. "gmail-watcher", "manual-cli"
+    event_type: str  # namespaced: >= 2 segmentos, ex. "email.received"
+    occurred_at: datetime  # tz-aware, normalizado para UTC
+    source: str  # ex. "gmail-watcher", "manual-cli"
     payload: Mapping[str, JsonValue]
     schema_version: int = 1
-    correlation_id: str | None = None    # resolvido para event_id quando ausente
+    correlation_id: str | None = None  # resolvido para event_id quando ausente
     causation_id: str | None = None
     metadata: Mapping[str, JsonValue] = field(default_factory=dict)
+
 
 @dataclass(frozen=True, slots=True)
 class RecordedEvent:
     event: Event
-    recorded_at: datetime                # UTC; atribuído SÓ pelo Event Store
+    recorded_at: datetime  # UTC; atribuído SÓ pelo Event Store
 ```
 
 Invariantes verificadas em `__post_init__` (falha ⇒ `InvalidEventError`):
@@ -341,14 +343,19 @@ class AppendResult:
     event: RecordedEvent
     is_duplicate: bool
 
+
 class EventStore(Protocol):
     def append(self, event: Event) -> AppendResult: ...
     def get(self, event_id: str) -> RecordedEvent | None: ...
-    def read_by_type(self, event_type: str, *, limit: int | None = None) -> Sequence[RecordedEvent]: ...
+    def read_by_type(
+        self, event_type: str, *, limit: int | None = None
+    ) -> Sequence[RecordedEvent]: ...
     def read_by_correlation(self, correlation_id: str) -> Sequence[RecordedEvent]: ...
-    def read_occurred_between(self, start: datetime, end: datetime, *,
-                              limit: int | None = None) -> Sequence[RecordedEvent]: ...
+    def read_occurred_between(
+        self, start: datetime, end: datetime, *, limit: int | None = None
+    ) -> Sequence[RecordedEvent]: ...
     def read_latest(self, *, limit: int) -> Sequence[RecordedEvent]: ...
+
 
 class EventConsumer(Protocol):
     @property
@@ -368,8 +375,9 @@ class EventConsumer(Protocol):
 ```python
 @dataclass(frozen=True, slots=True)
 class RetryPolicy:
-    max_attempts: int = 1     # 1 = sem retry
-    delay: float = 0.0        # segundos entre tentativas
+    max_attempts: int = 1  # 1 = sem retry
+    delay: float = 0.0  # segundos entre tentativas
+
 
 @dataclass(frozen=True, slots=True)
 class DeadLetter:
@@ -378,14 +386,24 @@ class DeadLetter:
     attempts: int
     error: Exception
 
+
 DeadLetterHandler = Callable[[DeadLetter], None]
 
+
 class EventBus:
-    def __init__(self, *, dead_letter_handler: DeadLetterHandler | None = None,
-                 sleep: Callable[[float], None] = time.sleep) -> None: ...
-    def subscribe(self, consumer: EventConsumer, *,
-                  event_types: Collection[str] | None = None,
-                  retry: RetryPolicy | None = None) -> None: ...
+    def __init__(
+        self,
+        *,
+        dead_letter_handler: DeadLetterHandler | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None: ...
+    def subscribe(
+        self,
+        consumer: EventConsumer,
+        *,
+        event_types: Collection[str] | None = None,
+        retry: RetryPolicy | None = None,
+    ) -> None: ...
     def publish(self, event: RecordedEvent) -> None: ...
 ```
 
@@ -407,11 +425,11 @@ class EventBus:
 class EventPublisher:
     def __init__(self, *, store: EventStore, bus: EventBus) -> None: ...
     def publish(self, event: Event) -> AppendResult:
-        result = self._store.append(event)          # 1. durável + dedupe
+        result = self._store.append(event)  # 1. durável + dedupe
         if result.is_duplicate:
-            logger.info("event.duplicate", ...)     # 2. no-op: não republica
+            logger.info("event.duplicate", ...)  # 2. no-op: não republica
             return result
-        self._bus.publish(result.event)             # 3. distribui
+        self._bus.publish(result.event)  # 3. distribui
         return result
 ```
 
