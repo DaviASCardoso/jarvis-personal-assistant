@@ -166,12 +166,12 @@ docs/
 └── security.md
 ```
 
-- [ ] Criar documentação principal
-- [ ] Documentar arquitetura de alto nível
-- [ ] Documentar responsabilidades dos componentes
-- [ ] Documentar fluxo de dados
-- [ ] Documentar decisões arquiteturais iniciais
-- [ ] Criar estrutura para Architecture Decision Records
+- [x] Criar documentação principal
+- [x] Documentar arquitetura de alto nível
+- [x] Documentar responsabilidades dos componentes
+- [x] Documentar fluxo de dados
+- [x] Documentar decisões arquiteturais iniciais
+- [x] Criar estrutura para Architecture Decision Records
 
 **Commit esperado:**
 
@@ -1729,7 +1729,7 @@ TTS
 | 2026-08-08 | 0.2 | ✅ | pendente |
 | 2026-08-08 | 0.3 | ✅ | pendente |
 | 2026-08-08 | 0.4 | ✅ | pendente |
-| — | 0.5 | ⬜ | — |
+| 2026-08-08 | 0.5 | ✅ | pendente |
 | — | 0.6 | ⬜ | — |
 | — | 0.7 | ⬜ | — |
 | — | 1.1 | ⬜ | — |
