@@ -7,6 +7,7 @@ por quem apenas usa o Core.
 Documentação: [`docs/memory-system.md`](../../../docs/memory-system.md).
 """
 
+from jarvis.memory.consolidation import ConsolidationReport, PromotionCandidate
 from jarvis.memory.embedding import EmbeddingModel, MemoryEmbedding, cosine_similarity
 from jarvis.memory.errors import (
     EmbeddingProviderError,
@@ -15,6 +16,7 @@ from jarvis.memory.errors import (
     MemoryRepositoryError,
     MemoryWriteError,
 )
+from jarvis.memory.manager import MemoryManager
 from jarvis.memory.memory import (
     Memory,
     MemoryOrigin,
@@ -36,6 +38,7 @@ from jarvis.memory.retrieval import (
 
 __all__ = [
     "DEFAULT_RANKING_WEIGHTS",
+    "ConsolidationReport",
     "EmbeddingModel",
     "EmbeddingProvider",
     "EmbeddingProviderError",
@@ -43,6 +46,7 @@ __all__ = [
     "Memory",
     "MemoryCriteria",
     "MemoryEmbedding",
+    "MemoryManager",
     "MemoryOrigin",
     "MemoryReadError",
     "MemoryRepository",
@@ -50,6 +54,7 @@ __all__ = [
     "MemoryRetrieval",
     "MemoryType",
     "MemoryWriteError",
+    "PromotionCandidate",
     "Provenance",
     "RankingWeights",
     "RelevanceScore",
