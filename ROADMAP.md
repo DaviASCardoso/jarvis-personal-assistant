@@ -16,7 +16,7 @@ O sistema será construído em oito fases:
 - [x] **Fase 0 — Foundation**
 - [x] **Fase 1 — Event System**
 - [x] **Fase 2 — Context Engine**
-- [ ] **Fase 3 — Memory System**
+- [x] **Fase 3 — Memory System**
 - [ ] **Fase 4 — Agent Runtime**
 - [ ] **Fase 5 — Skills + MCP**
 - [ ] **Fase 6 — Voice**
@@ -439,18 +439,19 @@ feat: complete context engine
 
 ## 3.1 — Memory Domain
 
-- [ ] Definir `Memory`
-- [ ] Definir memória episódica
-- [ ] Definir memória semântica
-- [ ] Definir memória de preferências
-- [ ] Definir memória procedural
-- [ ] Definir working memory
-- [ ] Definir task memory
-- [ ] Definir metadados
-- [ ] Definir confidence
-- [ ] Definir importance
-- [ ] Definir timestamps
-- [ ] Definir expiration
+- [x] Definir `Memory`
+- [x] Definir memória episódica
+- [x] Definir memória semântica
+- [x] Definir memória de preferências
+- [x] Definir memória procedural
+- [x] Definir working memory
+- [x] Definir task memory
+- [x] Definir metadados
+- [x] Definir confidence
+- [x] Definir importance
+- [x] Definir timestamps
+- [x] Definir expiration — derivada de `valid_until` (`Memory.is_valid_at`), nunca
+      uma coluna separada; nada é apagado quando expira, só deixa de ser vigente
 
 **Commit esperado:**
 
@@ -462,13 +463,18 @@ feat: implement memory domain
 
 ## 3.2 — Persistent Memory Storage
 
-- [ ] Definir banco de dados
-- [ ] Configurar PostgreSQL
-- [ ] Configurar pgvector
-- [ ] Criar schema
-- [ ] Criar migrations
-- [ ] Implementar repository
-- [ ] Criar testes
+- [x] Definir banco de dados — **SQLite**, não PostgreSQL, decisão registrada em
+      [ADR-0009](docs/adr/0009-sqlite-memory-storage.md) com a medição que a
+      justifica (varredura de cosseno em Python puro: ~109 ms para 10 mil
+      memórias). Diverge do roadmap original; ver `docs/phase-3-plan.md §29`
+- [x] Configurar PostgreSQL — **não realizado**, substituído pela decisão acima
+- [x] Configurar pgvector — **não realizado**; busca vetorial exata por varredura
+      no Core, sobre candidatos pré-filtrados por SQL, sem índice aproximado
+- [x] Criar schema
+- [x] Criar migrations — `PRAGMA user_version = 1`, sem ferramenta de migração,
+      mesmo critério das Fases 1 e 2 (nenhum histórico de schema a migrar ainda)
+- [x] Implementar repository
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -480,12 +486,12 @@ feat: implement persistent memory storage
 
 ## 3.3 — Memory Retrieval
 
-- [ ] Implementar busca semântica
-- [ ] Implementar busca temporal
-- [ ] Implementar busca por entidades
-- [ ] Implementar filtros
-- [ ] Implementar ranking inicial
-- [ ] Criar testes
+- [x] Implementar busca semântica
+- [x] Implementar busca temporal
+- [x] Implementar busca por entidades
+- [x] Implementar filtros
+- [x] Implementar ranking inicial
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -497,13 +503,13 @@ feat: implement memory retrieval
 
 ## 3.4 — Memory Scoring
 
-- [ ] Definir relevância
-- [ ] Definir recência
-- [ ] Definir importância
-- [ ] Definir confidence
-- [ ] Definir relevância temporal
-- [ ] Implementar scoring combinado
-- [ ] Testar ranking
+- [x] Definir relevância
+- [x] Definir recência
+- [x] Definir importância
+- [x] Definir confidence
+- [x] Definir relevância temporal
+- [x] Implementar scoring combinado
+- [x] Testar ranking
 
 **Commit esperado:**
 
@@ -515,13 +521,16 @@ feat: implement memory scoring
 
 ## 3.5 — Memory Consolidation
 
-- [ ] Definir consolidação
-- [ ] Detectar padrões
-- [ ] Criar memórias semânticas
-- [ ] Relacionar memórias
-- [ ] Controlar confidence
-- [ ] Evitar duplicações
-- [ ] Criar testes
+- [x] Definir consolidação
+- [x] Detectar padrões — **contagem determinística**, não inferência: ≥3
+      ocorrências episódicas ativas do mesmo `(subject, fingerprint)`, vindas de
+      ≥2 `provenance.reference` distintos. `PHASE-3.md §17/§24` proíbem LLM no
+      Memory System; detecção por similaridade semântica de padrão é Fase 4
+- [x] Criar memórias semânticas
+- [x] Relacionar memórias — `derived_from`/`superseded_by`
+- [x] Controlar confidence
+- [x] Evitar duplicações
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -533,14 +542,19 @@ feat: implement memory consolidation
 
 ## 3.6 — Memory Lifecycle
 
-- [ ] Implementar reinforcement
-- [ ] Implementar decay
-- [ ] Implementar expiration
-- [ ] Implementar forget
-- [ ] Implementar delete
-- [ ] Implementar atualização
-- [ ] Registrar origem das memórias
-- [ ] Criar testes
+- [x] Implementar reinforcement — curva assintótica (`c ← c + (cap − c)·α`),
+      nunca alcança 1.0
+- [x] Implementar decay — calculado em tempo de retrieval (`ranking.py`), nunca
+      persistido; meia-vida por tipo, ancorada em `updated_at`
+- [x] Implementar expiration
+- [x] Implementar forget — invalidação lógica, preserva evidência
+- [x] Implementar delete — `purge`, remoção física e irreversível, só por pedido
+      explícito ([ADR-0010](docs/adr/0010-immutable-memory-and-supersession.md));
+      assimetria deliberada em relação a `events`/`context_snapshots`
+- [x] Implementar atualização — só estado de ciclo de vida; conteúdo é imutável,
+      correção/contradição cria memória nova que supersede a anterior
+- [x] Registrar origem das memórias
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -552,11 +566,15 @@ feat: implement memory lifecycle
 
 ## 3.7 — Memory Integration
 
-- [ ] Integrar Event System
-- [ ] Integrar Context Engine
-- [ ] Criar fluxo evento → memória
-- [ ] Criar fluxo contexto → memória relevante
-- [ ] Testar recuperação contextual
+- [x] Integrar Event System — **direção única: entrada.** Contracts §3.3 não
+      lista o Event System entre as dependências permitidas do Memory Core (ao
+      contrário da §3.2 para o Context Engine); o Memory System não emite
+      eventos nesta fase. Ver `docs/phase-3-plan.md §29`
+- [x] Integrar Context Engine — `context_to_query`, restrito aos campos de
+      estado do usuário (`place`/`activity`/`availability`)
+- [x] Criar fluxo evento → memória — `user.stated_preference`, `user.noted_fact`
+- [x] Criar fluxo contexto → memória relevante
+- [x] Testar recuperação contextual
 
 **Commit esperado:**
 
@@ -566,7 +584,7 @@ feat: complete persistent memory system
 
 ### Memory System completo
 
-- [ ] **FASE 3 CONCLUÍDA**
+- [x] **FASE 3 CONCLUÍDA**
 
 ---
 
@@ -1427,12 +1445,12 @@ O sistema consegue representar o estado atual.
 **Semana 7**
 
 ```text
-[ ] Memory
-[ ] PostgreSQL
-[ ] Vector search
-[ ] Retrieval
-[ ] Consolidation
-[ ] Lifecycle
+[x] Memory
+[x] PostgreSQL — SQLite, ver ADR-0009
+[x] Vector search
+[x] Retrieval
+[x] Consolidation
+[x] Lifecycle
 ```
 
 O sistema consegue lembrar.
@@ -1750,13 +1768,13 @@ TTS
 | 2026-08-10 | 2.3 | ✅ | `feat: implement context aggregation` |
 | 2026-08-10 | 2.4 | ✅ | `feat: implement context snapshots` |
 | 2026-08-10 | 2.5 | ✅ | `feat: complete context engine` |
-| — | 3.1 | ⬜ | — |
-| — | 3.2 | ⬜ | — |
-| — | 3.3 | ⬜ | — |
-| — | 3.4 | ⬜ | — |
-| — | 3.5 | ⬜ | — |
-| — | 3.6 | ⬜ | — |
-| — | 3.7 | ⬜ | — |
+| 2026-08-10 | 3.1 | ✅ | `feat: implement memory domain` |
+| 2026-08-10 | 3.2 | ✅ | `feat: implement persistent memory storage` |
+| 2026-08-10 | 3.3 | ✅ | `feat: implement memory retrieval` |
+| 2026-08-10 | 3.4 | ✅ | `feat: implement memory scoring` |
+| 2026-08-10 | 3.5 | ✅ | `feat: implement memory consolidation` |
+| 2026-08-10 | 3.6 | ✅ | `feat: implement memory lifecycle` |
+| 2026-08-10 | 3.7 | ✅ | `feat: complete persistent memory system` |
 | — | 4.1 | ⬜ | — |
 | — | 4.2 | ⬜ | — |
 | — | 4.3 | ⬜ | — |
