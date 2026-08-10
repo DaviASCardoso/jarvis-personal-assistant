@@ -89,7 +89,7 @@ _MOMENT_CODEC: Final = (_encode_moment, _decode_moment)
 
 _CODECS: Final[Mapping[ContextField, tuple[Callable[[object], str], Callable[..., object]]]] = {
     ContextField.AVAILABILITY: _TEXT_CODEC,
-    ContextField.LOCAL_TIME: _MOMENT_CODEC,
+    ContextField.UTC_OFFSET: _TEXT_CODEC,
     ContextField.PLACE: _TEXT_CODEC,
     ContextField.DEVICE_ID: _TEXT_CODEC,
     ContextField.ACTIVITY: _TEXT_CODEC,
@@ -182,7 +182,7 @@ def decode_context(raw: object) -> CurrentContext:
         as_of=parse_timestamp(decoded.get("as_of"), field_name="as_of"),
         user=UserContext(availability=_as_text(found.get(ContextField.AVAILABILITY))),
         environment=EnvironmentContext(
-            local_time=_as_moment(found.get(ContextField.LOCAL_TIME)),
+            utc_offset=_as_text(found.get(ContextField.UTC_OFFSET)),
             place=_as_text(found.get(ContextField.PLACE)),
         ),
         device=DeviceContext(device_id=_as_text(found.get(ContextField.DEVICE_ID))),

@@ -36,6 +36,14 @@ class TestValidators:
         with pytest.raises(InvalidContextError, match="texto"):
             require_label(7, field_name="x")
 
+    def test_never_repeats_the_rejected_value(self) -> None:
+        """A recusa vira log com stack trace no bus: repetir o valor vazaria o payload."""
+        with pytest.raises(InvalidContextError) as exc_info:
+            require_label("Reunião com Dra. Marina", field_name="payload.activity")
+
+        assert "Marina" not in str(exc_info.value)
+        assert "payload.activity" in str(exc_info.value)
+
     def test_identifier_is_opaque_but_not_blank(self) -> None:
         assert require_identifier("Conv-42/AB", field_name="x") == "Conv-42/AB"
         with pytest.raises(InvalidContextError, match="vazio"):

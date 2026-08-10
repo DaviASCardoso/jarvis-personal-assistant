@@ -62,6 +62,7 @@ class TestBasics:
         assert __version__ in out
         assert "test" in out
         assert "events.db" in out
+        assert "context.db" in out
 
     def test_events_without_action_prints_its_help(
         self, capsys: pytest.CaptureFixture[str]
@@ -205,6 +206,133 @@ class TestList:
     def test_incomplete_window_is_rejected(self, capsys: pytest.CaptureFixture[str]) -> None:
         assert main(["events", "list", "--since", "2026-08-09T00:00:00+00:00"]) == 2
         assert "juntos" in capsys.readouterr().err
+
+
+class TestContext:
+    def test_without_action_prints_its_help(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["context"]) == 0
+
+        out = capsys.readouterr().out
+        assert "show" in out
+        assert "snapshot" in out
+
+    def test_show_reports_absence_without_inventing_values(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main(["context", "show"]) == 0
+
+        out = capsys.readouterr().out
+        rows = dict(line.split(maxsplit=1) for line in out.splitlines())
+
+        assert "as_of" in rows
+        # O Time Provider responde de verdade; o que ninguém observou fica ausente.
+        assert rows["utc_offset"].split()[0].startswith(("+", "-"))
+        assert rows["availability"] == "-"
+        assert rows["conversation"] == "-"
+        assert rows["task"] == "-"
+
+    def test_show_distinguishes_observed_absence_from_no_data(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        for event_type, payload in (
+            ("user.activity_started", '{"activity": "working"}'),
+            ("user.activity_ended", "{}"),
+        ):
+            assert (
+                main(
+                    [
+                        "events",
+                        "emit",
+                        "--type",
+                        event_type,
+                        "--source",
+                        "manual-cli",
+                        "--payload",
+                        payload,
+                        "--key",
+                        event_type,
+                    ]
+                )
+                == 0
+            )
+        capsys.readouterr()
+
+        assert main(["context", "show"]) == 0
+
+        rows = dict(line.split(maxsplit=1) for line in capsys.readouterr().out.splitlines())
+        assert rows["activity"].startswith("(nenhum)")
+        assert "event:user.activity_ended" in rows["activity"]
+        assert rows["conversation"] == "-"
+
+    def test_show_reflects_events_recorded_by_another_process(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert (
+            main(
+                [
+                    "events",
+                    "emit",
+                    "--type",
+                    "user.activity_started",
+                    "--source",
+                    "manual-cli",
+                    "--payload",
+                    '{"activity": "working"}',
+                    "--key",
+                    "act-1",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        assert main(["context", "show"]) == 0
+
+        out = capsys.readouterr().out
+        assert "working" in out
+        assert "event:user.activity_started" in out
+        assert "fresh" in out
+
+    def test_snapshot_captures_once_and_then_reports_unchanged(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main(["context", "snapshot"]) == 0
+        first = capsys.readouterr().out
+
+        assert main(["context", "snapshot"]) == 0
+        second = capsys.readouterr().out
+
+        assert "captured " in first
+        assert "unchanged" in second
+
+    def test_snapshot_stores_the_capture(self, isolated_data_dir: Path) -> None:
+        assert main(["context", "snapshot"]) == 0
+
+        with sqlite3.connect(isolated_data_dir / "context.db") as connection:
+            rows = connection.execute("SELECT count(*) FROM context_snapshots").fetchone()[0]
+
+        assert rows == 1
+
+    def test_a_malformed_context_event_does_not_break_the_emit(
+        self, capsys: pytest.CaptureFixture[str], isolated_data_dir: Path
+    ) -> None:
+        """O consumer recusa o payload; o fato continua registrado (dead-letter)."""
+        code = main(
+            [
+                "events",
+                "emit",
+                "--type",
+                "user.activity_started",
+                "--source",
+                "manual-cli",
+                "--payload",
+                '{"activity": "Muito Ocupado"}',
+            ]
+        )
+
+        assert code == 0
+        assert "status         recorded" in capsys.readouterr().out
+        assert count_rows(isolated_data_dir) == 1
 
 
 def test_payload_is_not_printed_by_list(capsys: pytest.CaptureFixture[str]) -> None:

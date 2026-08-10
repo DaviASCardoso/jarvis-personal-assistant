@@ -33,7 +33,12 @@ class Freshness(StrEnum):
 
 
 def require_label(value: object, *, field_name: str) -> str:
-    """Um rótulo curto e fechado (ex. `busy`, `working`, `home`)."""
+    """Um rótulo curto e fechado (ex. `busy`, `working`, `home`).
+
+    Nenhuma mensagem repete o valor recusado. Ele costuma vir de um payload de
+    evento, e uma falha de validação vira log com stack trace no bus — seria a
+    forma mais fácil de vazar dado pessoal justamente no caminho de erro.
+    """
     if not isinstance(value, str):
         raise InvalidContextError(
             f"{field_name} precisa ser texto, recebido {type(value).__name__}"
@@ -43,9 +48,7 @@ def require_label(value: object, *, field_name: str) -> str:
             f"{field_name} excede {MAX_LABEL_LENGTH} caracteres: {len(value)}"
         )
     if not _LABEL_PATTERN.fullmatch(value):
-        raise InvalidContextError(
-            f"{field_name} inválido: {value!r} não casa com {_LABEL_PATTERN.pattern}"
-        )
+        raise InvalidContextError(f"{field_name} não casa com {_LABEL_PATTERN.pattern}")
     return value
 
 

@@ -34,8 +34,8 @@ class TtlPolicy:
 DEFAULT_TTL_POLICY: Final = TtlPolicy(
     ttl_by_field=MappingProxyType(
         {
-            # Uma leitura de relógio envelhece imediatamente.
-            ContextField.LOCAL_TIME: timedelta(minutes=1),
+            # O offset local muda só com viagem ou horário de verão.
+            ContextField.UTC_OFFSET: timedelta(hours=12),
             # contracts §6: "localização expira em minutos".
             ContextField.PLACE: timedelta(minutes=15),
             # A identidade do dispositivo não envelhece sozinha.

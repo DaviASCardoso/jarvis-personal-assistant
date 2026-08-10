@@ -2,8 +2,10 @@
 
 Este é o único módulo autorizado a conhecer Core, Infrastructure e Interfaces ao
 mesmo tempo (ADR-0001): ele carrega a configuração, instancia os adapters concretos
-(`SqliteEventStore`, `LoggingEventConsumer`) e os injeta nos serviços do Core
-(`EventBus`, `EventPublisher`). Nenhum módulo do Core importa `jarvis.events.adapters`.
+(`SqliteEventStore`, `LoggingEventConsumer`, os Context Providers, o repositório de
+snapshots) e os injeta nos serviços do Core (`EventBus`, `EventPublisher`,
+`ContextAggregator`, `ContextEngine`). Nenhum módulo do Core importa
+`jarvis.events.adapters` nem `jarvis.context.adapters`.
 """
 
 import argparse
@@ -16,6 +18,18 @@ from pathlib import Path
 
 from jarvis import __version__
 from jarvis.config import LogLevel, Settings, load_settings
+from jarvis.context import (
+    ContextAggregator,
+    ContextEngine,
+    ContextSnapshotError,
+    CurrentContext,
+    InvalidContextError,
+    iter_fields,
+)
+from jarvis.context.adapters.device_provider import LocalDeviceProvider
+from jarvis.context.adapters.sqlite_snapshots import SqliteContextSnapshotRepository
+from jarvis.context.adapters.time_provider import SystemTimeProvider
+from jarvis.context.consumer import CONTEXT_EVENT_TYPES
 from jarvis.events import (
     Event,
     EventBus,
@@ -36,6 +50,11 @@ EXIT_INVALID_INPUT = 2
 
 DEFAULT_LIST_LIMIT = 20
 
+# Duas ausências distintas, e a distinção precisa aparecer: `-` é "nunca observado",
+# `(nenhum)` é "alguém observou que não há".
+ABSENT = "-"
+OBSERVED_ABSENCE = "(nenhum)"
+
 
 def configure_logging(level: LogLevel) -> None:
     """Configura o logging da aplicação uma única vez, aqui na borda.
@@ -52,6 +71,22 @@ def configure_logging(level: LogLevel) -> None:
 
 def event_store_path(settings: Settings) -> Path:
     return settings.data_dir / "events.db"
+
+
+def context_store_path(settings: Settings) -> Path:
+    """Banco próprio: Context Engine e Event System versionam schema à parte."""
+    return settings.data_dir / "context.db"
+
+
+def build_context_engine(snapshots: SqliteContextSnapshotRepository) -> ContextEngine:
+    """Monta o Context Engine com os providers que têm dado local de verdade.
+
+    Activity, Calendar e Location não entram: exigiriam integração externa que
+    esta fase não implementa, e um provider de valor declarado aqui pareceria
+    funcionalidade pronta sem ser.
+    """
+    aggregator = ContextAggregator(providers=[SystemTimeProvider(), LocalDeviceProvider()])
+    return ContextEngine(aggregator=aggregator, snapshots=snapshots)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -86,6 +121,14 @@ def build_parser() -> argparse.ArgumentParser:
     listing.add_argument("--since", help="Início da janela de occurred_at (ISO-8601, inclusivo).")
     listing.add_argument("--until", help="Fim da janela de occurred_at (ISO-8601, exclusivo).")
     listing.add_argument("--limit", type=int, default=DEFAULT_LIST_LIMIT)
+
+    context = subparsers.add_parser("context", help="Inspeciona e captura o contexto atual.")
+    context.set_defaults(context_parser=context)
+    context_actions = context.add_subparsers(dest="context_command")
+    context_actions.add_parser("show", help="Mostra a projeção atual, campo a campo.")
+    context_actions.add_parser(
+        "snapshot", help="Captura a projeção atual, se algo mudou desde a última."
+    )
 
     return parser
 
@@ -136,9 +179,16 @@ def _build_event(args: argparse.Namespace) -> Event:
 def _emit(args: argparse.Namespace, settings: Settings) -> int:
     event = _build_event(args)
 
-    with SqliteEventStore.open(event_store_path(settings)) as store:
+    with (
+        SqliteEventStore.open(event_store_path(settings)) as store,
+        SqliteContextSnapshotRepository.open(context_store_path(settings)) as snapshots,
+    ):
         bus = EventBus()
         bus.subscribe(LoggingEventConsumer())
+        # Filtro explícito: o Context Engine só recebe o que sabe projetar. Sem
+        # retry — payload malformado é falha permanente, e o bus manda para
+        # dead-letter sem desfazer o evento já gravado.
+        bus.subscribe(build_context_engine(snapshots).consumer, event_types=CONTEXT_EVENT_TYPES)
         result = EventPublisher(store=store, bus=bus).publish(event)
 
     print(f"event_id       {result.event.event.event_id}")
@@ -187,11 +237,64 @@ def _list(args: argparse.Namespace, settings: Settings) -> int:
 
 def _info(settings: Settings) -> int:
     print(f"jarvis {__version__}")
-    print(f"env         {settings.env}")
-    print(f"log_level   {settings.log_level}")
-    print(f"data_dir    {settings.data_dir}")
-    print(f"event_store {event_store_path(settings)}")
+    print(f"env           {settings.env}")
+    print(f"log_level     {settings.log_level}")
+    print(f"data_dir      {settings.data_dir}")
+    print(f"event_store   {event_store_path(settings)}")
+    print(f"context_store {context_store_path(settings)}")
     return EXIT_OK
+
+
+def _render_value(value: object) -> str:
+    if value is None:
+        return OBSERVED_ABSENCE
+    return value.isoformat() if isinstance(value, datetime) else str(value)
+
+
+def _print_context(context: CurrentContext) -> None:
+    print(f"as_of {context.as_of.isoformat()}")
+    for field, observation in iter_fields(context):
+        if observation is None:
+            # Ausência é ausência: o Context Engine nunca preenche o que não sabe.
+            print(f"{field.value:<14} {ABSENT}")
+            continue
+        print(
+            f"{field.value:<14} {_render_value(observation.value):<32} "
+            f"{observation.source:<34} {observation.observed_at.isoformat()}  "
+            f"{observation.freshness(context.as_of).value}"
+        )
+
+
+def _run_context_command(settings: Settings, action: str) -> int:
+    with (
+        SqliteEventStore.open(event_store_path(settings)) as store,
+        SqliteContextSnapshotRepository.open(context_store_path(settings)) as snapshots,
+    ):
+        engine = build_context_engine(snapshots)
+        # A projeção é derivada: um processo novo a reconstrói do Event Store
+        # antes de perguntar aos providers.
+        engine.rebuild_from(store)
+        engine.refresh()
+
+        if action == "show":
+            _print_context(engine.current())
+            return EXIT_OK
+
+        captured = engine.capture_snapshot()
+
+    if captured is None:
+        print("unchanged")
+        return EXIT_OK
+    print(f"captured {captured.snapshot_id}")
+    print(f"captured_at {captured.captured_at.isoformat()}")
+    return EXIT_OK
+
+
+def _context(args: argparse.Namespace, settings: Settings) -> int:
+    if args.context_command is None:
+        args.context_parser.print_help()
+        return EXIT_OK
+    return _run_context_command(settings, args.context_command)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -208,18 +311,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "info":
         return _info(settings)
 
-    if args.events_command is None:
-        args.events_parser.print_help()
-        return EXIT_OK
-
     try:
+        if args.command == "context":
+            return _context(args, settings)
+
+        if args.events_command is None:
+            args.events_parser.print_help()
+            return EXIT_OK
         if args.events_command == "emit":
             return _emit(args, settings)
         return _list(args, settings)
-    except InvalidEventError as error:
+    except (InvalidEventError, InvalidContextError) as error:
         print(f"erro: {error}", file=sys.stderr)
         return EXIT_INVALID_INPUT
-    except EventStoreError as error:
+    except (EventStoreError, ContextSnapshotError) as error:
         print(f"erro: {error}", file=sys.stderr)
         return EXIT_INFRASTRUCTURE_ERROR
 

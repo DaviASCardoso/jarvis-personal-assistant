@@ -30,17 +30,17 @@ def test_a_field_may_declare_that_it_never_expires() -> None:
 
 def test_ttl_is_per_field_not_global() -> None:
     """Dois campos observados juntos vencem em momentos diferentes."""
-    short = DEFAULT_TTL_POLICY.ttl_for(ContextField.LOCAL_TIME)
+    short = DEFAULT_TTL_POLICY.ttl_for(ContextField.PLACE)
     long = DEFAULT_TTL_POLICY.ttl_for(ContextField.TASK)
     assert short is not None and long is not None
     assert short < long
 
-    local_time = make_observation(NOON, observed_at=NOON, ttl=short)
+    place = make_observation("home", observed_at=NOON, ttl=short)
     task = make_observation("t-1", observed_at=NOON, ttl=long)
 
     later = NOON + short + timedelta(seconds=1)
 
-    assert local_time.freshness(later) is Freshness.STALE
+    assert place.freshness(later) is Freshness.STALE
     assert task.freshness(later) is Freshness.FRESH
 
 

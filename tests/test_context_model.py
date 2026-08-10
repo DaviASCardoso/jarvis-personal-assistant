@@ -75,22 +75,22 @@ class TestContextUpdate:
     def test_carries_typed_values(self) -> None:
         update = ContextUpdate(
             availability=make_observation("busy"),
-            local_time=make_observation(NOON),
+            utc_offset=make_observation("+00:00"),
         )
 
         assert update.availability is not None
         assert update.availability.value == "busy"
-        assert update.local_time is not None
-        assert update.local_time.value == NOON
+        assert update.utc_offset is not None
+        assert update.utc_offset.value == "+00:00"
 
 
 def test_context_groups_observations_under_the_seven_subcontexts() -> None:
     context = CurrentContext(
         as_of=NOON,
         user=UserContext(availability=make_observation("busy")),
-        environment=EnvironmentContext(local_time=make_observation(NOON)),
+        environment=EnvironmentContext(utc_offset=make_observation("+00:00")),
     )
 
     populated = {field for field, observation in iter_fields(context) if observation is not None}
 
-    assert populated == {ContextField.AVAILABILITY, ContextField.LOCAL_TIME}
+    assert populated == {ContextField.AVAILABILITY, ContextField.UTC_OFFSET}

@@ -17,27 +17,47 @@ class TestSystemTimeProvider:
     def test_reports_the_instant_it_was_given(self) -> None:
         update = SystemTimeProvider().observe(NOON)
 
-        assert update.local_time is not None
-        assert update.local_time.observed_at == NOON
-        assert update.local_time.source == "provider:time"
+        assert update.utc_offset is not None
+        assert update.utc_offset.observed_at == NOON
+        assert update.utc_offset.source == "provider:time"
+        assert update.utc_offset.observed_at.tzinfo is UTC
 
-    def test_converts_the_value_to_the_injected_zone(self) -> None:
+    def test_reports_the_offset_of_the_injected_zone(self) -> None:
         update = SystemTimeProvider(time_zone=SAO_PAULO).observe(NOON)
 
-        assert update.local_time is not None
-        assert update.local_time.value == datetime(2026, 8, 10, 9, 0, tzinfo=SAO_PAULO)
-        # O valor guarda o offset local; o metadado é sempre UTC.
-        assert update.local_time.value.utcoffset() == timedelta(hours=-3)
-        assert update.local_time.observed_at.tzinfo is UTC
+        assert update.utc_offset is not None
+        assert update.utc_offset.value == "-03:00"
+
+    @pytest.mark.parametrize(
+        ("offset", "expected"),
+        [
+            (timedelta(0), "+00:00"),
+            (timedelta(hours=5, minutes=30), "+05:30"),
+            (timedelta(hours=-9, minutes=-30), "-09:30"),
+        ],
+    )
+    def test_formats_the_offset_like_iso_8601(self, offset: timedelta, expected: str) -> None:
+        update = SystemTimeProvider(time_zone=timezone(offset)).observe(NOON)
+
+        assert update.utc_offset is not None
+        assert update.utc_offset.value == expected
+
+    def test_reports_the_offset_rather_than_the_instant(self) -> None:
+        """O instante já é `as_of`; um campo que muda a cada leitura inflaria o histórico."""
+        provider = SystemTimeProvider(time_zone=UTC)
+
+        first = provider.observe(NOON)
+        second = provider.observe(NOON + timedelta(hours=3))
+
+        assert first.utc_offset is not None
+        assert second.utc_offset is not None
+        assert first.utc_offset.value == second.utc_offset.value
 
     def test_never_reads_the_real_clock(self) -> None:
         """Duas observações do mesmo instante são idênticas — nada de `now()` interno."""
         provider = SystemTimeProvider(time_zone=UTC)
 
-        first = provider.observe(NOON)
-        second = provider.observe(NOON)
-
-        assert first == second
+        assert provider.observe(NOON) == provider.observe(NOON)
 
     def test_speaks_only_about_its_own_field(self) -> None:
         update = SystemTimeProvider().observe(NOON)
@@ -74,7 +94,7 @@ class TestLocalDeviceProvider:
     def test_uses_the_standard_library_by_default(self) -> None:
         update = LocalDeviceProvider().observe(NOON)
 
-        assert update.local_time is None
+        assert update.utc_offset is None
         if update.device_id is not None:
             assert update.device_id.value.strip()
 

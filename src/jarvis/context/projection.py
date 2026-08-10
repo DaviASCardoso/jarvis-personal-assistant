@@ -142,8 +142,8 @@ class ContextProjection:
             )
         )
         self._environment = EnvironmentContext(
-            local_time=take(
-                ContextField.LOCAL_TIME, self._environment.local_time, update.local_time
+            utc_offset=take(
+                ContextField.UTC_OFFSET, self._environment.utc_offset, update.utc_offset
             ),
             place=take(ContextField.PLACE, self._environment.place, update.place),
         )

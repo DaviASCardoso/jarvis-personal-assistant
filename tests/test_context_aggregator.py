@@ -33,7 +33,9 @@ class FlakyProvider:
 
 class TestCollection:
     def test_polls_every_provider_with_the_same_instant(self) -> None:
-        time_source = StubProvider(ContextUpdate(local_time=make_observation(NOON)), name="time")
+        time_source = StubProvider(
+            ContextUpdate(utc_offset=make_observation("+00:00")), name="time"
+        )
         device = StubProvider(ContextUpdate(device_id=make_observation("notebook")), name="device")
         aggregator = ContextAggregator(providers=[time_source, device], clock=frozen_clock(NOON))
 
@@ -45,7 +47,7 @@ class TestCollection:
     def test_combines_fields_from_independent_sources(self) -> None:
         aggregator = ContextAggregator(
             providers=[
-                StubProvider(ContextUpdate(local_time=make_observation(NOON)), name="time"),
+                StubProvider(ContextUpdate(utc_offset=make_observation("+00:00")), name="time"),
                 StubProvider(ContextUpdate(place=make_observation("home")), name="location"),
             ],
             clock=frozen_clock(NOON),
@@ -54,7 +56,7 @@ class TestCollection:
         aggregator.refresh()
 
         context = aggregator.get_current_context()
-        assert context.environment.local_time is not None
+        assert context.environment.utc_offset is not None
         assert context.environment.place is not None
         assert context.environment.place.value == "home"
 

@@ -15,10 +15,13 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 
 from jarvis.context.aggregator import ContextAggregator
+from jarvis.context.consumer import CONTEXT_EVENT_TYPES, ContextEventConsumer
 from jarvis.context.model import CurrentContext, iter_fields
 from jarvis.context.ports import ContextSnapshotRepository
 from jarvis.context.projection import ContextConflict
 from jarvis.context.snapshot import ContextSnapshot, new_snapshot_id
+from jarvis.events.event import RecordedEvent
+from jarvis.events.ports import EventStore
 
 logger = logging.getLogger(__name__)
 
@@ -27,22 +30,60 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _persistence_order(recorded: RecordedEvent) -> tuple[datetime, datetime, str]:
+    """`recorded_at` é a ordem real; os demais só desempatam de forma estável."""
+    return recorded.recorded_at, recorded.event.occurred_at, recorded.event.event_id
+
+
 class ContextEngine:
     def __init__(
         self,
         *,
         aggregator: ContextAggregator,
         snapshots: ContextSnapshotRepository,
+        consumer: ContextEventConsumer | None = None,
         clock: Callable[[], datetime] = _utc_now,
         new_id: Callable[[], str] = new_snapshot_id,
     ) -> None:
         self._aggregator = aggregator
         self._snapshots = snapshots
+        self._consumer = consumer or ContextEventConsumer(aggregator)
         self._clock = clock
         self._new_id = new_id
 
+    @property
+    def consumer(self) -> ContextEventConsumer:
+        """O que o composition root inscreve no bus, com `CONTEXT_EVENT_TYPES`."""
+        return self._consumer
+
     def refresh(self) -> tuple[ContextConflict, ...]:
         return self._aggregator.refresh()
+
+    def rebuild_from(self, store: EventStore) -> None:
+        """Reconstrói a projeção a partir dos eventos já registrados.
+
+        `CurrentContext` é projeção derivada, não fonte de verdade: um processo
+        novo (a CLI é de vida curta) nasceria sem nada se não relesse o store.
+
+        A ordem importa — `user.activity_started` seguido de `user.activity_ended`
+        só resolve certo na ordem em que os fatos foram registrados. `read_by_type`
+        já devolve cada tipo em ordem de persistência; reordenar por `recorded_at`
+        recompõe a ordem **entre** tipos, usando apenas o que `RecordedEvent` expõe.
+
+        Limitação conhecida: dois eventos de tipos diferentes com `recorded_at`
+        idêntico não são desempatáveis (a coluna `sequence` do adapter não é
+        exposta no domínio), e a leitura é integral, sem cursor. Se qualquer uma
+        das duas passar a alterar o resultado na prática, a resposta é acrescentar
+        leitura ordenada/por cursor ao port `EventStore` naquele momento — com o
+        consumidor concreto na mão.
+        """
+        recorded = [
+            item
+            for event_type in sorted(CONTEXT_EVENT_TYPES)
+            for item in store.read_by_type(event_type)
+        ]
+        for item in sorted(recorded, key=_persistence_order):
+            self._consumer.handle(item)
 
     def current(self) -> CurrentContext:
         return self._aggregator.get_current_context()

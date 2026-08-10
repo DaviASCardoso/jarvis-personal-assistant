@@ -43,7 +43,7 @@ def fully_populated() -> CurrentContext:
             )
         ),
         environment=EnvironmentContext(
-            local_time=make_observation(NOON, ttl=timedelta(minutes=1)),
+            utc_offset=make_observation("-03:00", ttl=timedelta(hours=12)),
             place=make_observation("home", ttl=timedelta(minutes=15)),
         ),
         device=DeviceContext(device_id=make_observation("notebook")),
@@ -130,7 +130,7 @@ class TestCorruption:
             {
                 "as_of": NOON.isoformat(),
                 "fields": {
-                    "local_time": {
+                    "next_entry_at": {
                         "value": "ontem",
                         "observed_at": NOON.isoformat(),
                         "source": "s",
@@ -141,7 +141,7 @@ class TestCorruption:
             }
         )
 
-        with pytest.raises(ContextSnapshotReadError, match=r"local_time\.value"):
+        with pytest.raises(ContextSnapshotReadError, match=r"next_entry_at\.value"):
             decode_context(document)
 
     def test_non_numeric_confidence_is_reported(self) -> None:

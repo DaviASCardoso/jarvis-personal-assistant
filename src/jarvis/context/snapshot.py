@@ -8,9 +8,11 @@ decidiu X?". Por isso preserva os metadados de cada campo — `source`,
 então um snapshot lido hoje reproduz exatamente a validade que valia na captura,
 sem duplicar estado que poderia divergir.
 
-O fingerprint deliberadamente ignora `as_of`: ele muda a cada leitura, e incluí-lo
-faria toda captura parecer nova, esvaziando a regra de relevância do
-`ContextEngine`.
+O fingerprint mede **o que o sistema acredita** — valor, origem e confiança por
+campo — e deliberadamente ignora os tempos (`as_of`, `observed_at`) e o TTL. Eles
+avançam a cada leitura mesmo quando nada foi aprendido, e incluí-los faria toda
+captura parecer nova, esvaziando a regra de relevância do `ContextEngine`. Reobservar
+o mesmo valor deixa o contexto mais fresco, não diferente.
 """
 
 import hashlib
@@ -53,10 +55,8 @@ def context_fingerprint(context: CurrentContext) -> str:
                 (
                     field.value,
                     _render(observation.value),
-                    observation.observed_at.isoformat(),
                     observation.source,
                     repr(observation.confidence),
-                    "" if observation.ttl is None else repr(observation.ttl.total_seconds()),
                 )
             )
         )

@@ -33,7 +33,7 @@ class ContextField(StrEnum):
     """
 
     AVAILABILITY = "availability"
-    LOCAL_TIME = "local_time"
+    UTC_OFFSET = "utc_offset"
     PLACE = "place"
     DEVICE_ID = "device_id"
     ACTIVITY = "activity"
@@ -49,7 +49,10 @@ class UserContext:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EnvironmentContext:
-    local_time: Observation[datetime] | None = None
+    # O offset em vigor (ex. `-03:00`), e não o instante: o instante já é
+    # `CurrentContext.as_of`, e um campo que muda a cada leitura tornaria todo
+    # snapshot diferente do anterior sem que nada tivesse acontecido.
+    utc_offset: Observation[str] | None = None
     place: Observation[str] | None = None
 
 
@@ -104,7 +107,7 @@ class ContextUpdate:
     """
 
     availability: Observation[str] | None = None
-    local_time: Observation[datetime] | None = None
+    utc_offset: Observation[str] | None = None
     place: Observation[str] | None = None
     device_id: Observation[str] | None = None
     activity: Observation[str | None] | None = None
@@ -116,7 +119,7 @@ class ContextUpdate:
         return not any(
             (
                 self.availability,
-                self.local_time,
+                self.utc_offset,
                 self.place,
                 self.device_id,
                 self.activity,
@@ -136,7 +139,7 @@ def iter_fields(
     e faria um rename silencioso passar despercebido.
     """
     yield ContextField.AVAILABILITY, context.user.availability
-    yield ContextField.LOCAL_TIME, context.environment.local_time
+    yield ContextField.UTC_OFFSET, context.environment.utc_offset
     yield ContextField.PLACE, context.environment.place
     yield ContextField.DEVICE_ID, context.device.device_id
     yield ContextField.ACTIVITY, context.activity.current

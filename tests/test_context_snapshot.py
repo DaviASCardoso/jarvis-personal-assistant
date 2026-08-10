@@ -22,7 +22,7 @@ def a_context() -> CurrentContext:
     return CurrentContext(
         as_of=NOON,
         user=UserContext(availability=make_observation("busy", observed_at=NOON)),
-        environment=EnvironmentContext(local_time=make_observation(NOON, observed_at=NOON)),
+        environment=EnvironmentContext(utc_offset=make_observation("+00:00", observed_at=NOON)),
     )
 
 
@@ -108,6 +108,31 @@ class TestFingerprint:
         late = replace(early, as_of=NOON + timedelta(hours=3))
 
         assert context_fingerprint(early) == context_fingerprint(late)
+
+    def test_reobserving_the_same_value_is_not_a_change(self) -> None:
+        """Olhar de novo deixa o contexto mais fresco, não diferente."""
+        before = a_context()
+        after = replace(
+            before,
+            user=UserContext(
+                availability=make_observation(
+                    "busy", observed_at=NOON + timedelta(hours=2), ttl=timedelta(hours=4)
+                )
+            ),
+        )
+
+        assert context_fingerprint(before) == context_fingerprint(after)
+
+    def test_changes_when_confidence_changes(self) -> None:
+        before = a_context()
+        after = replace(
+            before,
+            user=UserContext(
+                availability=make_observation("busy", observed_at=NOON, confidence=0.4)
+            ),
+        )
+
+        assert context_fingerprint(before) != context_fingerprint(after)
 
     def test_changes_when_a_value_changes(self) -> None:
         before = a_context()
