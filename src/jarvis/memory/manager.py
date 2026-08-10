@@ -19,7 +19,7 @@ from jarvis.memory.consolidation import (
     find_promotions,
 )
 from jarvis.memory.embedding import MemoryEmbedding
-from jarvis.memory.errors import EmbeddingProviderError
+from jarvis.memory.errors import EmbeddingProviderError, InvalidMemoryError, MemoryWriteError
 from jarvis.memory.memory import (
     Memory,
     MemoryOrigin,
@@ -131,6 +131,77 @@ class MemoryManager:
 
     def retrieve(self, query: RetrievalQuery) -> RetrievalOutcome:
         return self._retrieval.retrieve(query)
+
+    def record_access(self, memory_id: str) -> StoredMemory:
+        """Uso deliberado, não curiosidade: `retrieve()` nunca chama isto por
+        conta própria (ver `memory/retrieval.py`) — é quem efetivamente usou a
+        memória que registra o acesso."""
+        return self._repository.record_access(memory_id, moment=self._clock())
+
+    def reinforce(self, memory_id: str) -> StoredMemory:
+        """Reforço explícito — a mesma curva assintótica do caminho de
+        duplicata em `remember`, para quando algo fora de uma nova afirmação
+        (ex. o Agent Runtime confirmando que usou a memória) deveria aumentar
+        a confiança."""
+        current = self._repository.get(memory_id)
+        if current is None:
+            raise MemoryWriteError(f"memória {memory_id} não encontrada")
+        return self._repository.reinforce(
+            memory_id, confidence=reinforced_confidence(current.confidence), moment=self._clock()
+        )
+
+    def forget(self, memory_id: str, *, reason: str) -> StoredMemory:
+        """Invalidação lógica: a memória some do retrieval padrão, mas a
+        evidência permanece (`include_invalidated=True` a recupera)."""
+        return self._repository.invalidate(memory_id, reason=reason, moment=self._clock())
+
+    def forget_scope(self, scope: str, *, reason: str) -> tuple[StoredMemory, ...]:
+        """Invalida em bloco as memórias de uma tarefa encerrada — o que
+        `PHASE-3.md §14` descreve para Task Memory, sem precisar de um segundo
+        armazenamento."""
+        now = self._clock()
+        active = self._repository.search(MemoryCriteria(scope=scope, active_at=now))
+        return tuple(
+            self._repository.invalidate(item.memory.memory_id, reason=reason, moment=now)
+            for item in active
+        )
+
+    def purge(self, memory_id: str) -> bool:
+        """Remoção física e irreversível — o direito de apagar dado pessoal
+        (`PHASE-3.md §16`), nunca automática."""
+        return self._repository.purge(memory_id)
+
+    def reembed(self, *, embeddings: EmbeddingProvider | None = None) -> int:
+        """Regenera vetores **incompatíveis** com o modelo corrente — o
+        caminho de recuperação depois de trocar de `EmbeddingProvider`
+        (contracts §7). Memórias sem embedding (ex. `WORKING`, por design) não
+        são tocadas: ausência intencional não é incompatibilidade."""
+        provider = embeddings if embeddings is not None else self._embeddings
+        if provider is None:
+            raise InvalidMemoryError("reembed exige um EmbeddingProvider configurado")
+
+        now = self._clock()
+        active = self._repository.search(MemoryCriteria(active_at=now))
+        updated = 0
+        for item in active:
+            embedding = item.memory.embedding
+            if embedding is None or embedding.model == provider.model:
+                continue
+            try:
+                vector = provider.embed(item.memory.content)
+            except EmbeddingProviderError as error:
+                logger.warning(
+                    "memory.reembed_failed",
+                    extra={
+                        "memory_id": item.memory.memory_id,
+                        "error_type": type(error).__name__,
+                    },
+                )
+                continue
+            new_embedding = MemoryEmbedding(vector=vector, model=provider.model, created_at=now)
+            self._repository.replace_embedding(item.memory.memory_id, new_embedding, moment=now)
+            updated += 1
+        return updated
 
     def consolidate(self) -> ConsolidationReport:
         """Deduplicação e contradição já acontecem em `remember`; esta é a
