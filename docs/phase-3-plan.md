@@ -453,18 +453,19 @@ class MemoryType(StrEnum):
 
 
 class MemoryOrigin(StrEnum):
-    USER = "user"          # o usuário afirmou
-    EVENT = "event"        # derivada de um fato registrado
-    AGENT = "agent"        # inferência do agente — nunca confidence 1.0
-    SYSTEM = "system"      # produzida por uma regra determinística (consolidação)
+    USER = "user"  # o usuário afirmou
+    EVENT = "event"  # derivada de um fato registrado
+    AGENT = "agent"  # inferência do agente — nunca confidence 1.0
+    SYSTEM = "system"  # produzida por uma regra determinística (consolidação)
     IMPORTED = "imported"  # trazida de fora
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Provenance:
     """De onde a informação veio, com detalhe suficiente para auditar."""
+
     origin: MemoryOrigin
-    reference: str | None = None   # event_id, correlation_id, id de importação…
+    reference: str | None = None  # event_id, correlation_id, id de importação…
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -492,19 +493,19 @@ class Memory:
     type: MemoryType
     content: str
     provenance: Provenance
-    created_at: datetime                     # tz-aware, UTC
-    importance: float = 0.5                  # 0..1
-    confidence: float = 0.8                  # 0..1
-    valid_from: datetime | None = None       # default: created_at
+    created_at: datetime  # tz-aware, UTC
+    importance: float = 0.5  # 0..1
+    confidence: float = 0.8  # 0..1
+    valid_from: datetime | None = None  # default: created_at
     valid_until: datetime | None = None
-    subject: str | None = None               # slug; chave de contradição
-    scope: str | None = None                 # task_id / conversation_id
+    subject: str | None = None  # slug; chave de contradição
+    scope: str | None = None  # task_id / conversation_id
     entities: tuple[str, ...] = ()
     tags: tuple[str, ...] = ()
-    derived_from: tuple[str, ...] = ()       # memory_ids que a originaram
+    derived_from: tuple[str, ...] = ()  # memory_ids que a originaram
     embedding: MemoryEmbedding | None = None
 
-    def fingerprint(self) -> str: ...        # SHA-256 do conteúdo normalizado
+    def fingerprint(self) -> str: ...  # SHA-256 do conteúdo normalizado
     def is_valid_at(self, moment: datetime) -> bool: ...
 ```
 
@@ -534,9 +535,9 @@ class Memory:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class StoredMemory:
     memory: Memory
-    recorded_at: datetime                     # atribuído pelo repositório
-    updated_at: datetime                      # última mudança de ciclo de vida
-    confidence: float                          # corrente (reforço a altera)
+    recorded_at: datetime  # atribuído pelo repositório
+    updated_at: datetime  # última mudança de ciclo de vida
+    confidence: float  # corrente (reforço a altera)
     last_accessed_at: datetime | None = None
     access_count: int = 0
     reinforced_count: int = 0
@@ -544,7 +545,7 @@ class StoredMemory:
     invalidated_at: datetime | None = None
     invalidation_reason: str | None = None
 
-    def is_active_at(self, moment: datetime) -> bool: ...   # válida ∧ não invalidada ∧ não superada
+    def is_active_at(self, moment: datetime) -> bool: ...  # válida ∧ não invalidada ∧ não superada
 ```
 
 `confidence` aparece nos dois: em `Memory` é o valor **inicial** afirmado
@@ -580,7 +581,9 @@ class MemoryRepository(Protocol):
     def reinforce(self, memory_id: str, *, confidence: float, moment: datetime) -> StoredMemory: ...
     def invalidate(self, memory_id: str, *, reason: str, moment: datetime) -> StoredMemory: ...
     def supersede(self, memory_id: str, *, by: str, moment: datetime) -> StoredMemory: ...
-    def replace_embedding(self, memory_id: str, embedding: MemoryEmbedding, *, moment: datetime) -> StoredMemory: ...
+    def replace_embedding(
+        self, memory_id: str, embedding: MemoryEmbedding, *, moment: datetime
+    ) -> StoredMemory: ...
     def purge(self, memory_id: str) -> bool: ...
 ```
 
@@ -591,15 +594,16 @@ Nove métodos, cada um com consumidor real nesta fase. Não há `update` genéri
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MemoryCriteria:
     """Filtros estruturados. Todos opcionais; combinam por AND."""
+
     types: frozenset[MemoryType] | None = None
     subject: str | None = None
     scope: str | None = None
-    tags: frozenset[str] | None = None            # todas presentes
-    entities: frozenset[str] | None = None        # todas presentes
-    created_from: datetime | None = None          # [from, until)
+    tags: frozenset[str] | None = None  # todas presentes
+    entities: frozenset[str] | None = None  # todas presentes
+    created_from: datetime | None = None  # [from, until)
     created_until: datetime | None = None
     minimum_importance: float | None = None
-    active_at: datetime | None = None             # vigência; default do manager = agora
+    active_at: datetime | None = None  # vigência; default do manager = agora
     include_invalidated: bool = False
     include_superseded: bool = False
     embedding_model: tuple[str, str] | None = None  # (provider, model) — candidatos comparáveis
@@ -700,6 +704,7 @@ Cinco índices, um por filtro realmente usado. Nenhum índice especulativo.
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EmbeddingModel:
     """Identidade do espaço vetorial. Dois vetores só se comparam se isto coincidir."""
+
     provider: str
     model: str
     dimensions: int
@@ -776,10 +781,10 @@ A solução: **uma API, dois modos explícitos**, distinguidos pela presença de
 ```python
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RetrievalQuery:
-    text: str | None = None          # None ⇒ lookup puramente estruturado
+    text: str | None = None  # None ⇒ lookup puramente estruturado
     criteria: MemoryCriteria = MemoryCriteria()
     limit: int = 10
-    now: datetime | None = None      # injetável; default: clock do manager
+    now: datetime | None = None  # injetável; default: clock do manager
 ```
 
 - `text is None` → **lookup estruturado**: filtros SQL, ordenação pelo score sem o
@@ -812,7 +817,8 @@ RetrievalOutcome(results, scanned, skipped_incompatible)
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RetrievalResult:
     memory: StoredMemory
-    score: RelevanceScore     # com o detalhamento de cada termo
+    score: RelevanceScore  # com o detalhamento de cada termo
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RetrievalOutcome:
@@ -900,7 +906,7 @@ difícil de diagnosticar depois.
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RelevanceScore:
     total: float
-    semantic: float | None      # None quando não houve consulta textual
+    semantic: float | None  # None quando não houve consulta textual
     recency: float
     importance: float
     confidence: float
