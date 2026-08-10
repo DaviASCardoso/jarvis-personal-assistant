@@ -15,7 +15,7 @@ O sistema será construído em oito fases:
 
 - [x] **Fase 0 — Foundation**
 - [x] **Fase 1 — Event System**
-- [ ] **Fase 2 — Context Engine**
+- [x] **Fase 2 — Context Engine**
 - [ ] **Fase 3 — Memory System**
 - [ ] **Fase 4 — Agent Runtime**
 - [ ] **Fase 5 — Skills + MCP**
@@ -336,15 +336,15 @@ feat: complete event-driven core
 
 ## 2.1 — Context Domain
 
-- [ ] Definir `CurrentContext`
-- [ ] Definir `UserContext`
-- [ ] Definir `EnvironmentContext`
-- [ ] Definir `DeviceContext`
-- [ ] Definir `ActivityContext`
-- [ ] Definir `ScheduleContext`
-- [ ] Definir `ConversationContext`
-- [ ] Definir `TaskContext`
-- [ ] Definir timestamps e validade dos dados
+- [x] Definir `CurrentContext`
+- [x] Definir `UserContext`
+- [x] Definir `EnvironmentContext`
+- [x] Definir `DeviceContext`
+- [x] Definir `ActivityContext`
+- [x] Definir `ScheduleContext`
+- [x] Definir `ConversationContext`
+- [x] Definir `TaskContext`
+- [x] Definir timestamps e validade dos dados
 
 **Commit esperado:**
 
@@ -356,13 +356,18 @@ feat: implement context domain
 
 ## 2.2 — Context Providers
 
-- [ ] Criar interface `ContextProvider`
-- [ ] Criar Time Provider
-- [ ] Criar Device Provider
-- [ ] Criar Activity Provider
-- [ ] Criar Calendar Provider
-- [ ] Criar Location Provider
-- [ ] Criar mocks para testes
+- [x] Criar interface `ContextProvider`
+- [x] Criar Time Provider
+- [x] Criar Device Provider
+- [x] Criar Activity Provider — entregue como **port + double de teste**, não como
+      adapter em `src/`: nada de atividade é observável com segurança sem
+      introspecção do sistema operacional, que é escopo da subfase 8.1
+- [x] Criar Calendar Provider — idem; uma agenda real exigiria OAuth e integração
+      externa, proibidos nesta fase (`PHASE-2.md §5`), e um adapter de valor
+      declarado pareceria funcionalidade pronta sem ser
+- [x] Criar Location Provider — idem; sem rastreamento real, permissão ou serviço
+      externo. Ver [context-system.md](docs/context-system.md#providers)
+- [x] Criar mocks para testes
 
 **Commit esperado:**
 
@@ -374,13 +379,13 @@ feat: implement context providers
 
 ## 2.3 — Context Aggregation
 
-- [ ] Criar Context Aggregator
-- [ ] Coletar dados dos providers
-- [ ] Resolver conflitos
-- [ ] Controlar validade dos dados
-- [ ] Implementar timestamps
-- [ ] Criar `get_current_context`
-- [ ] Criar testes
+- [x] Criar Context Aggregator
+- [x] Coletar dados dos providers
+- [x] Resolver conflitos
+- [x] Controlar validade dos dados
+- [x] Implementar timestamps
+- [x] Criar `get_current_context`
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -392,11 +397,11 @@ feat: implement context aggregation
 
 ## 2.4 — Context Snapshots
 
-- [ ] Definir snapshot
-- [ ] Persistir snapshots relevantes
-- [ ] Implementar consulta histórica
-- [ ] Implementar expiração
-- [ ] Criar testes
+- [x] Definir snapshot
+- [x] Persistir snapshots relevantes
+- [x] Implementar consulta histórica
+- [x] Implementar expiração
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -408,11 +413,11 @@ feat: implement context snapshots
 
 ## 2.5 — Context Integration
 
-- [ ] Integrar Event System
-- [ ] Integrar Context Engine
-- [ ] Atualizar contexto a partir de eventos
-- [ ] Validar consistência
-- [ ] Testar fluxo completo
+- [x] Integrar Event System
+- [x] Integrar Context Engine
+- [x] Atualizar contexto a partir de eventos
+- [x] Validar consistência
+- [x] Testar fluxo completo
 
 **Commit esperado:**
 
@@ -422,7 +427,7 @@ feat: complete context engine
 
 ### Context Engine completo
 
-- [ ] **FASE 2 CONCLUÍDA**
+- [x] **FASE 2 CONCLUÍDA**
 
 ---
 
@@ -1407,10 +1412,10 @@ O sistema consegue perceber acontecimentos estruturados.
 **Semana 5**
 
 ```text
-[ ] Context
-[ ] Providers
-[ ] Aggregation
-[ ] Snapshots
+[x] Context
+[x] Providers
+[x] Aggregation
+[x] Snapshots
 ```
 
 O sistema consegue representar o estado atual.
@@ -1740,11 +1745,11 @@ TTS
 | 2026-08-09 | 1.3 | ✅ | `feat: implement persistent event store` |
 | 2026-08-09 | 1.4 | ✅ | `feat: implement event consumers` |
 | 2026-08-09 | 1.5 | ✅ | `feat: complete event-driven core` |
-| — | 2.1 | ⬜ | — |
-| — | 2.2 | ⬜ | — |
-| — | 2.3 | ⬜ | — |
-| — | 2.4 | ⬜ | — |
-| — | 2.5 | ⬜ | — |
+| 2026-08-10 | 2.1 | ✅ | `feat: implement context domain` |
+| 2026-08-10 | 2.2 | ✅ | `feat: implement context providers` |
+| 2026-08-10 | 2.3 | ✅ | `feat: implement context aggregation` |
+| 2026-08-10 | 2.4 | ✅ | `feat: implement context snapshots` |
+| 2026-08-10 | 2.5 | ✅ | `feat: complete context engine` |
 | — | 3.1 | ⬜ | — |
 | — | 3.2 | ⬜ | — |
 | — | 3.3 | ⬜ | — |
