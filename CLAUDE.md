@@ -60,28 +60,43 @@ src/jarvis/
 ├── cli.py         # entry point (argparse); composition root
 ├── config.py      # Settings (pydantic-settings, prefixo JARVIS_)
 ├── errors.py      # taxonomia base do Core (DomainError, InfrastructureError)
-└── events/        # Event System (Fase 1)
-    ├── event.py       # Event, RecordedEvent, JsonValue, geradores de event_id
-    ├── errors.py      # InvalidEventError, EventStoreError, Append/Read
-    ├── ports.py       # EventStore, EventConsumer (Protocols), AppendResult
-    ├── bus.py         # EventBus, RetryPolicy, DeadLetter
-    ├── publisher.py   # EventPublisher (store → bus)
-    └── adapters/      # Infrastructure: serialization, sqlite_store, logging_consumer
+├── events/        # Event System (Fase 1)
+│   ├── event.py       # Event, RecordedEvent, JsonValue, geradores de event_id
+│   ├── errors.py      # InvalidEventError, EventStoreError, Append/Read
+│   ├── ports.py       # EventStore, EventConsumer (Protocols), AppendResult
+│   ├── bus.py         # EventBus, RetryPolicy, DeadLetter
+│   ├── publisher.py   # EventPublisher (store → bus)
+│   └── adapters/      # Infrastructure: serialization, sqlite_store, logging_consumer
+└── context/       # Context Engine (Fase 2)
+    ├── observation.py # Observation[T], Freshness, validadores
+    ├── model.py       # ContextField, os 7 subcontextos, CurrentContext, ContextUpdate
+    ├── freshness.py   # TtlPolicy (TTL por campo)
+    ├── errors.py      # InvalidContextError, ContextProviderError, ContextSnapshotError
+    ├── ports.py       # ContextProvider, ContextSnapshotRepository (Protocols)
+    ├── projection.py  # ContextProjection, ContextConflict
+    ├── aggregator.py  # ContextAggregator
+    ├── consumer.py    # ContextEventConsumer, CONTEXT_EVENT_TYPES
+    ├── engine.py      # ContextEngine (reconstrução, captura, histórico, expiração)
+    └── adapters/      # Infrastructure: time/device provider, serialization, sqlite_snapshots
 
-tests/               # estrutura plana; `factories.py` monta eventos de teste
+tests/               # estrutura plana; `factories.py` monta eventos e
+                     # `context_doubles.py` monta providers/repositórios de teste
 docs/
 ├── README.md · architecture.md · architecture-contracts.md
-├── phase-1-plan.md          # plano aprovado da Fase 1
-├── event-system.md          # documentação de implementação (Fase 1)
-├── context-system.md · memory-system.md · agent-runtime.md
-├── skills.md · mcp.md · security.md   # ainda conceituais
-└── adr/                     # 0001–0008
+├── phase-1-plan.md · phase-2-plan.md   # planos aprovados das Fases 1 e 2
+├── event-system.md · context-system.md # documentação de implementação
+├── memory-system.md · agent-runtime.md
+├── skills.md · mcp.md · security.md    # ainda conceituais
+└── adr/                                # 0001–0008
 ```
 
-O projeto concluiu a Fase 1: existe Event System real (domínio, bus, store SQLite,
-consumers, CLI). **Não** há Context Engine, Memory, Agent Runtime, Skills, MCP ou
-Voice — esses seguem sem código. `cli.py` é o composition root: único módulo que
-conhece Core, Infrastructure e Interfaces ao mesmo tempo.
+O projeto concluiu as Fases 1 e 2: existem Event System real (domínio, bus, store
+SQLite, consumers) e Context Engine real (observações com proveniência e TTL por
+campo, providers de tempo e dispositivo, agregação com conflitos explícitos,
+consumer de eventos, reconstrução a partir do Event Store e snapshots persistidos).
+**Não** há Memory, Agent Runtime, Skills, MCP ou Voice — esses seguem sem código.
+`cli.py` é o composition root: único módulo que conhece Core, Infrastructure e
+Interfaces ao mesmo tempo.
 
 O padrão estabelecido na Fase 1 para um componente novo é `src/jarvis/<componente>/`
 com módulos de Core na raiz e um subpacote `adapters/` — **não** a separação física

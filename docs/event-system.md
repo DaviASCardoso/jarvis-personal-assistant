@@ -139,8 +139,13 @@ exatamente o que clock skew entre source e store produz.
 O port `EventStore` expõe apenas o que a fase precisa (`PHASE-1.md §12`):
 `append`, `get`, `read_by_type`, `read_by_correlation`, `read_occurred_between`
 (intervalo semiaberto sobre `occurred_at`) e `read_latest`. Não há paginação, busca
-textual, filtro composto nem leitura por offset — leitura por cursor é necessidade
-do Context Engine e será acrescentada na Fase 2, com o consumidor real na mão.
+textual, filtro composto nem leitura por offset.
+
+Leitura por cursor era esperada para a Fase 2 e **não se mostrou necessária**: o
+Context Engine reconstrói sua projeção com `read_by_type`, reordenando pelo
+`recorded_at` que `RecordedEvent` já expõe — ver
+[context-system.md](context-system.md). O gatilho para acrescentá-la ficou
+registrado lá, e continua sendo "com o consumidor real na mão".
 
 ## Distribuição: bus, ack, retry, dead letter
 

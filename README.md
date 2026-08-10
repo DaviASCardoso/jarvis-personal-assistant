@@ -3,10 +3,10 @@
 Agente pessoal de IA, construído de forma incremental e orientado a eventos,
 contexto e memória.
 
-> **Status:** Fase 1 — Event System concluída. O Jarvis já registra acontecimentos
-> como fatos imutáveis, os persiste com deduplicação e os distribui a consumidores.
-> Contexto, memória, raciocínio e voz ainda não existem — o planejamento completo
-> está em [ROADMAP.md](ROADMAP.md).
+> **Status:** Fase 2 — Context Engine concluída. O Jarvis registra acontecimentos
+> como fatos imutáveis e os projeta em um estado atual consultável, com origem,
+> instante de observação e validade por campo. Memória, raciocínio e voz ainda não
+> existem — o planejamento completo está em [ROADMAP.md](ROADMAP.md).
 
 ## Requisitos
 
@@ -41,6 +41,22 @@ uv run jarvis events list --correlation-id <id>   # a cadeia causal inteira
 
 Os eventos ficam em `<JARVIS_DATA_DIR>/events.db` (por padrão `data/events.db`, já
 ignorado pelo Git). Detalhes em [`docs/event-system.md`](docs/event-system.md).
+
+### Contexto
+
+```bash
+# o que o sistema sabe agora: valor, origem, quando foi observado e se ainda vale
+uv run jarvis context show
+
+# congela essa visão para consulta histórica (só grava se algo mudou)
+uv run jarvis context snapshot
+```
+
+O contexto é uma projeção **derivada** dos eventos e dos providers locais, não uma
+fonte de verdade: um processo novo a reconstrói a partir do event store. Campos sem
+observação aparecem como `-` e nunca são preenchidos por suposição. Os snapshots
+ficam em `<JARVIS_DATA_DIR>/context.db`. Detalhes em
+[`docs/context-system.md`](docs/context-system.md).
 
 ## Desenvolvimento
 

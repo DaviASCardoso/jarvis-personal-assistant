@@ -7,8 +7,13 @@ implementação e nenhuma necessidade de substituição, e um port para ele seri
 "abstração especulativa" que o contrato §1 proíbe.
 
 As operações de leitura aqui são exatamente as exigidas pela Fase 1 — consulta por
-tipo, temporal e por `correlation_id` (ROADMAP 1.3), mais o que o CLI usa. Leitura
-por offset/cursor é necessidade da Fase 2 e será acrescentada lá.
+tipo, temporal e por `correlation_id` (ROADMAP 1.3), mais o que o CLI usa.
+
+Leitura por offset/cursor era esperada para a Fase 2 e **não se mostrou
+necessária**: a reconstrução do contexto usa `read_by_type` e reordena pelo
+`recorded_at` que `RecordedEvent` já expõe. O gatilho para acrescentá-la é
+concreto — volume de eventos que torne a leitura integral cara, ou empate de
+`recorded_at` entre tipos que passe a alterar o resultado de uma reconstrução.
 """
 
 from collections.abc import Sequence

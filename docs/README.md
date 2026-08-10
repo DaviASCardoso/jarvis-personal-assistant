@@ -20,14 +20,17 @@ Esta pasta reúne a documentação técnica do Jarvis.
   descreve o Event System que existe em `src/jarvis/events/` desde a Fase 1
   (Event/RecordedEvent, Event Store SQLite, Event Bus, consumers,
   correlation/causation, idempotência, comandos de CLI).
-- [`phase-1-plan.md`](phase-1-plan.md) — o plano técnico aprovado que guiou a
-  Fase 1, incluindo as decisões consideradas e as descartadas.
+- [`context-system.md`](context-system.md) — **documentação de implementação**:
+  descreve o Context Engine que existe em `src/jarvis/context/` desde a Fase 2
+  (`Observation`, os sete subcontextos, TTL por campo, conflitos, eventos
+  projetados, reconstrução, snapshots com expiração lógica, comandos de CLI).
+- [`phase-1-plan.md`](phase-1-plan.md) e [`phase-2-plan.md`](phase-2-plan.md) — os
+  planos técnicos aprovados que guiaram as Fases 1 e 2, incluindo as decisões
+  consideradas e as descartadas.
 - Documentação conceitual por componente, criada na subfase 0.5 — explica
   cada contrato aprovado na 0.3 sem repeti-lo e sem implementar nada ainda
   (cada componente segue sem código real até sua fase correspondente no
   [roadmap](../ROADMAP.md)):
-  - [`context-system.md`](context-system.md) — `CurrentContext`,
-    `ContextSnapshot`, providers, freshness/TTL, confiança (Fase 2).
   - [`memory-system.md`](memory-system.md) — tipos de memória,
     importance/confidence/relevance, `EmbeddingProvider` (Fase 3).
   - [`agent-runtime.md`](agent-runtime.md) — loop observe→...→execute,
