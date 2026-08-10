@@ -63,6 +63,7 @@ class TestBasics:
         assert "test" in out
         assert "events.db" in out
         assert "context.db" in out
+        assert "memory.db" in out
 
     def test_events_without_action_prints_its_help(
         self, capsys: pytest.CaptureFixture[str]
@@ -333,6 +334,167 @@ class TestContext:
         assert code == 0
         assert "status         recorded" in capsys.readouterr().out
         assert count_rows(isolated_data_dir) == 1
+
+
+def add_memory(*args: str) -> int:
+    return main(
+        [
+            "memory",
+            "add",
+            "--type",
+            "episodic",
+            "--content",
+            "prefere Python para scripts",
+            *args,
+        ]
+    )
+
+
+class TestMemory:
+    def test_without_action_prints_its_help(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["memory"]) == 0
+
+        out = capsys.readouterr().out
+        assert "add" in out
+        assert "search" in out
+
+    def test_add_creates_a_memory(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert add_memory() == 0
+
+        out = capsys.readouterr().out
+        assert "memory_id" in out
+        assert "prefere Python para scripts" in out
+
+    def test_add_stores_the_memory(self, isolated_data_dir: Path) -> None:
+        assert add_memory() == 0
+
+        with sqlite3.connect(isolated_data_dir / "memory.db") as connection:
+            rows = connection.execute("SELECT count(*) FROM memories").fetchone()[0]
+        assert rows == 1
+
+    def test_get_returns_the_memory_and_records_access(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        add_memory()
+        memory_id = capsys.readouterr().out.splitlines()[0].split()[-1]
+
+        assert main(["memory", "get", memory_id]) == 0
+
+        out = capsys.readouterr().out
+        assert memory_id in out
+        assert "access      1" in out
+
+    def test_get_missing_id_is_an_infrastructure_error(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main(["memory", "get", "does-not-exist"]) == 1
+        assert "não encontrada" in capsys.readouterr().err
+
+    def test_list_shows_the_created_memory(self, capsys: pytest.CaptureFixture[str]) -> None:
+        add_memory()
+        capsys.readouterr()
+
+        assert main(["memory", "list"]) == 0
+
+        assert "prefere Python" in capsys.readouterr().out
+
+    def test_list_reports_when_there_is_nothing(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["memory", "list"]) == 0
+        assert "nenhuma memória" in capsys.readouterr().out
+
+    def test_list_filters_by_type(self, capsys: pytest.CaptureFixture[str]) -> None:
+        add_memory()
+        capsys.readouterr()
+
+        assert main(["memory", "list", "--type", "semantic"]) == 0
+        assert "nenhuma memória" in capsys.readouterr().out
+
+    def test_search_structured_without_text(self, capsys: pytest.CaptureFixture[str]) -> None:
+        add_memory()
+        capsys.readouterr()
+
+        assert main(["memory", "search"]) == 0
+        assert "prefere Python" in capsys.readouterr().out
+
+    def test_search_semantic_with_explain(self, capsys: pytest.CaptureFixture[str]) -> None:
+        add_memory()
+        capsys.readouterr()
+
+        assert main(["memory", "search", "usa para programar", "--explain"]) == 0
+
+        out = capsys.readouterr().out
+        assert "prefere Python" in out
+        assert "score=" in out
+        assert "semantic=" in out
+
+    def test_forget_invalidates_without_erasing(
+        self, capsys: pytest.CaptureFixture[str], isolated_data_dir: Path
+    ) -> None:
+        add_memory()
+        memory_id = capsys.readouterr().out.splitlines()[0].split()[-1]
+
+        assert main(["memory", "forget", memory_id, "--reason", "teste"]) == 0
+        capsys.readouterr()
+
+        assert main(["memory", "list"]) == 0
+        assert "nenhuma memória" in capsys.readouterr().out
+
+        with sqlite3.connect(isolated_data_dir / "memory.db") as connection:
+            rows = connection.execute("SELECT count(*) FROM memories").fetchone()[0]
+        assert rows == 1
+
+    def test_forget_purge_removes_physically(
+        self, capsys: pytest.CaptureFixture[str], isolated_data_dir: Path
+    ) -> None:
+        add_memory()
+        memory_id = capsys.readouterr().out.splitlines()[0].split()[-1]
+
+        assert main(["memory", "forget", memory_id, "--reason", "teste", "--purge"]) == 0
+
+        with sqlite3.connect(isolated_data_dir / "memory.db") as connection:
+            rows = connection.execute("SELECT count(*) FROM memories").fetchone()[0]
+        assert rows == 0
+
+    def test_reindex_reports_zero_when_nothing_is_incompatible(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        add_memory()
+        capsys.readouterr()
+
+        assert main(["memory", "reindex"]) == 0
+        assert "reindexed 0" in capsys.readouterr().out
+
+    def test_add_rejects_invalid_type(self, capsys: pytest.CaptureFixture[str]) -> None:
+        # `choices` do argparse recusa antes mesmo de chegar ao domínio — sai
+        # via SystemExit, como `--version` (test_version_flag).
+        with pytest.raises(SystemExit) as exc_info:
+            main(["memory", "add", "--type", "not-a-type", "--content", "x"])
+        assert exc_info.value.code == 2
+
+    def test_add_no_embedding_flag(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert add_memory("--no-embedding") == 0
+        assert "embedding   no" in capsys.readouterr().out
+
+    def test_an_event_driven_memory_appears_in_search(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        code = main(
+            [
+                "events",
+                "emit",
+                "--type",
+                "user.stated_preference",
+                "--source",
+                "manual-cli",
+                "--payload",
+                '{"subject": "preference.coffee", "content": "prefere café sem açúcar"}',
+            ]
+        )
+        assert code == 0
+        capsys.readouterr()
+
+        assert main(["memory", "list", "--subject", "preference.coffee"]) == 0
+        assert "prefere café" in capsys.readouterr().out
 
 
 def test_payload_is_not_printed_by_list(capsys: pytest.CaptureFixture[str]) -> None:

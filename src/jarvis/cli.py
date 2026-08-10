@@ -3,9 +3,10 @@
 Este é o único módulo autorizado a conhecer Core, Infrastructure e Interfaces ao
 mesmo tempo (ADR-0001): ele carrega a configuração, instancia os adapters concretos
 (`SqliteEventStore`, `LoggingEventConsumer`, os Context Providers, o repositório de
-snapshots) e os injeta nos serviços do Core (`EventBus`, `EventPublisher`,
-`ContextAggregator`, `ContextEngine`). Nenhum módulo do Core importa
-`jarvis.events.adapters` nem `jarvis.context.adapters`.
+snapshots, o repositório de memórias, o `EmbeddingProvider`) e os injeta nos
+serviços do Core (`EventBus`, `EventPublisher`, `ContextAggregator`,
+`ContextEngine`, `MemoryManager`). Nenhum módulo do Core importa
+`jarvis.events.adapters`, `jarvis.context.adapters` nem `jarvis.memory.adapters`.
 """
 
 import argparse
@@ -43,6 +44,21 @@ from jarvis.events import (
 )
 from jarvis.events.adapters.logging_consumer import LoggingEventConsumer
 from jarvis.events.adapters.sqlite_store import SqliteEventStore
+from jarvis.memory import (
+    InvalidMemoryError,
+    MemoryCriteria,
+    MemoryManager,
+    MemoryOrigin,
+    MemoryRepositoryError,
+    MemoryType,
+    Provenance,
+    RetrievalQuery,
+    StoredMemory,
+)
+from jarvis.memory.adapters.context_bridge import context_to_query
+from jarvis.memory.adapters.event_consumer import MEMORY_EVENT_TYPES, MemoryEventConsumer
+from jarvis.memory.adapters.hashing_embeddings import HashingEmbeddingProvider
+from jarvis.memory.adapters.sqlite_repository import SqliteMemoryRepository
 
 EXIT_OK = 0
 EXIT_INFRASTRUCTURE_ERROR = 1
@@ -89,6 +105,19 @@ def build_context_engine(snapshots: SqliteContextSnapshotRepository) -> ContextE
     return ContextEngine(aggregator=aggregator, snapshots=snapshots)
 
 
+def memory_store_path(settings: Settings) -> Path:
+    """Banco próprio: três componentes, três bancos, cada um versionando
+    schema à parte."""
+    return settings.data_dir / "memory.db"
+
+
+def build_memory_manager(memories: SqliteMemoryRepository) -> MemoryManager:
+    """`HashingEmbeddingProvider`: local e determinístico, para que o Memory
+    System funcione sem nenhum LLM configurado (`PHASE-3.md §17`). Um adapter
+    de vendor real é escopo da Fase 4."""
+    return MemoryManager(repository=memories, embeddings=HashingEmbeddingProvider())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="jarvis", description="Agente pessoal de IA.")
     parser.add_argument("--version", action="version", version=f"jarvis {__version__}")
@@ -128,6 +157,70 @@ def build_parser() -> argparse.ArgumentParser:
     context_actions.add_parser("show", help="Mostra a projeção atual, campo a campo.")
     context_actions.add_parser(
         "snapshot", help="Captura a projeção atual, se algo mudou desde a última."
+    )
+
+    memory = subparsers.add_parser("memory", help="Gerencia memórias persistentes.")
+    memory.set_defaults(memory_parser=memory)
+    memory_actions = memory.add_subparsers(dest="memory_command")
+
+    memory_types = [item.value for item in MemoryType]
+    memory_origins = [item.value for item in MemoryOrigin]
+
+    add_memory = memory_actions.add_parser("add", help="Cria uma memória.")
+    add_memory.add_argument("--type", required=True, choices=memory_types)
+    add_memory.add_argument("--content", required=True)
+    add_memory.add_argument("--origin", default="user", choices=memory_origins)
+    add_memory.add_argument("--reference", help="Proveniência, ex. um event_id.")
+    add_memory.add_argument("--importance", type=float, default=0.5)
+    add_memory.add_argument("--confidence", type=float, default=0.8)
+    add_memory.add_argument("--subject", help="Slug; chave de contradição.")
+    add_memory.add_argument("--scope", help="task_id ou conversation_id.")
+    add_memory.add_argument("--tags", help="Lista separada por vírgula.")
+    add_memory.add_argument("--entities", help="Lista separada por vírgula.")
+    add_memory.add_argument("--valid-until", help="ISO-8601 com timezone.")
+    add_memory.add_argument(
+        "--no-embedding", action="store_true", help="Não gera embedding para esta memória."
+    )
+
+    get_memory = memory_actions.add_parser(
+        "get", help="Busca uma memória por id; registra o acesso."
+    )
+    get_memory.add_argument("memory_id")
+
+    list_memory = memory_actions.add_parser("list", help="Lista memórias por filtro estruturado.")
+    list_memory.add_argument("--type", choices=memory_types)
+    list_memory.add_argument("--subject")
+    list_memory.add_argument("--scope")
+    list_memory.add_argument("--tag", action="append", default=[])
+    list_memory.add_argument("--entity", action="append", default=[])
+    list_memory.add_argument("--include-invalidated", action="store_true")
+    list_memory.add_argument("--include-superseded", action="store_true")
+    list_memory.add_argument("--limit", type=int, default=DEFAULT_LIST_LIMIT)
+
+    search_memory = memory_actions.add_parser(
+        "search", help="Busca semântica (ou estruturada, se o texto for omitido)."
+    )
+    search_memory.add_argument(
+        "text", nargs="?", help="Consulta textual; omitida = lookup estruturado."
+    )
+    search_memory.add_argument("--type", choices=memory_types)
+    search_memory.add_argument("--limit", type=int, default=DEFAULT_LIST_LIMIT)
+    search_memory.add_argument(
+        "--explain", action="store_true", help="Mostra o detalhamento do score."
+    )
+    search_memory.add_argument(
+        "--from-context", action="store_true", help="Usa o contexto atual como filtro."
+    )
+
+    forget_memory = memory_actions.add_parser("forget", help="Invalida (ou apaga) uma memória.")
+    forget_memory.add_argument("memory_id")
+    forget_memory.add_argument("--reason", required=True)
+    forget_memory.add_argument(
+        "--purge", action="store_true", help="Remove fisicamente, de forma irreversível."
+    )
+
+    memory_actions.add_parser(
+        "reindex", help="Regenera embeddings incompatíveis com o modelo atual."
     )
 
     return parser
@@ -182,13 +275,17 @@ def _emit(args: argparse.Namespace, settings: Settings) -> int:
     with (
         SqliteEventStore.open(event_store_path(settings)) as store,
         SqliteContextSnapshotRepository.open(context_store_path(settings)) as snapshots,
+        SqliteMemoryRepository.open(memory_store_path(settings)) as memories,
     ):
         bus = EventBus()
         bus.subscribe(LoggingEventConsumer())
-        # Filtro explícito: o Context Engine só recebe o que sabe projetar. Sem
+        # Filtro explícito: cada consumer só recebe o que sabe projetar. Sem
         # retry — payload malformado é falha permanente, e o bus manda para
         # dead-letter sem desfazer o evento já gravado.
         bus.subscribe(build_context_engine(snapshots).consumer, event_types=CONTEXT_EVENT_TYPES)
+        bus.subscribe(
+            MemoryEventConsumer(build_memory_manager(memories)), event_types=MEMORY_EVENT_TYPES
+        )
         result = EventPublisher(store=store, bus=bus).publish(event)
 
     print(f"event_id       {result.event.event.event_id}")
@@ -242,6 +339,7 @@ def _info(settings: Settings) -> int:
     print(f"data_dir      {settings.data_dir}")
     print(f"event_store   {event_store_path(settings)}")
     print(f"context_store {context_store_path(settings)}")
+    print(f"memory_store  {memory_store_path(settings)}")
     return EXIT_OK
 
 
@@ -297,6 +395,170 @@ def _context(args: argparse.Namespace, settings: Settings) -> int:
     return _run_context_command(settings, args.context_command)
 
 
+def _parse_list(raw: str | None) -> tuple[str, ...]:
+    if not raw:
+        return ()
+    return tuple(item.strip() for item in raw.split(",") if item.strip())
+
+
+def _print_memory(stored: StoredMemory) -> None:
+    memory = stored.memory
+    print(f"memory_id   {memory.memory_id}")
+    print(f"type        {memory.type.value}")
+    print(f"content     {memory.content}")
+    print(f"subject     {memory.subject or ABSENT}")
+    print(f"scope       {memory.scope or ABSENT}")
+    print(f"importance  {memory.importance}")
+    print(f"confidence  {stored.confidence}")
+    print(f"origin      {memory.provenance.origin.value}")
+    print(f"reference   {memory.provenance.reference or ABSENT}")
+    print(f"created_at  {memory.created_at.isoformat()}")
+    print(f"valid_from  {memory.valid_from.isoformat() if memory.valid_from else ABSENT}")
+    print(f"valid_until {memory.valid_until.isoformat() if memory.valid_until else ABSENT}")
+    print(f"embedding   {'yes' if memory.embedding is not None else 'no'}")
+    print(f"access      {stored.access_count}")
+    print(f"reinforced  {stored.reinforced_count}")
+
+
+def _print_memory_row(stored: StoredMemory) -> None:
+    memory = stored.memory
+    summary = memory.content if len(memory.content) <= 60 else f"{memory.content[:57]}..."
+    print(
+        f"{memory.memory_id}  {memory.type.value:<11} {(memory.subject or ABSENT):<28} "
+        f"imp={memory.importance:.2f} conf={stored.confidence:.2f}  {summary}"
+    )
+
+
+def _memory_add(args: argparse.Namespace, settings: Settings) -> int:
+    with SqliteMemoryRepository.open(memory_store_path(settings)) as memories:
+        stored = build_memory_manager(memories).remember(
+            type=MemoryType(args.type),
+            content=args.content,
+            provenance=Provenance(origin=MemoryOrigin(args.origin), reference=args.reference),
+            importance=args.importance,
+            confidence=args.confidence,
+            subject=args.subject,
+            scope=args.scope,
+            tags=_parse_list(args.tags),
+            entities=_parse_list(args.entities),
+            valid_until=_parse_timestamp(args.valid_until, field_name="--valid-until")
+            if args.valid_until
+            else None,
+            embed=False if args.no_embedding else None,
+        )
+    _print_memory(stored)
+    return EXIT_OK
+
+
+def _memory_get(args: argparse.Namespace, settings: Settings) -> int:
+    with SqliteMemoryRepository.open(memory_store_path(settings)) as memories:
+        stored = build_memory_manager(memories).record_access(args.memory_id)
+    _print_memory(stored)
+    return EXIT_OK
+
+
+def _memory_list(args: argparse.Namespace, settings: Settings) -> int:
+    criteria = MemoryCriteria(
+        types=frozenset({MemoryType(args.type)}) if args.type else None,
+        subject=args.subject,
+        scope=args.scope,
+        tags=frozenset(args.tag) if args.tag else None,
+        entities=frozenset(args.entity) if args.entity else None,
+        include_invalidated=args.include_invalidated,
+        include_superseded=args.include_superseded,
+        limit=args.limit,
+    )
+    with SqliteMemoryRepository.open(memory_store_path(settings)) as memories:
+        found = memories.search(criteria)
+
+    if not found:
+        print("nenhuma memória encontrada")
+        return EXIT_OK
+    for stored in found:
+        _print_memory_row(stored)
+    return EXIT_OK
+
+
+def _memory_search(args: argparse.Namespace, settings: Settings) -> int:
+    with SqliteMemoryRepository.open(memory_store_path(settings)) as memories:
+        manager = build_memory_manager(memories)
+
+        if args.from_context:
+            with (
+                SqliteEventStore.open(event_store_path(settings)) as store,
+                SqliteContextSnapshotRepository.open(context_store_path(settings)) as snapshots,
+            ):
+                engine = build_context_engine(snapshots)
+                engine.rebuild_from(store)
+                engine.refresh()
+                query = context_to_query(engine.current(), text=args.text, limit=args.limit)
+        else:
+            criteria = MemoryCriteria(
+                types=frozenset({MemoryType(args.type)}) if args.type else None
+            )
+            query = RetrievalQuery(text=args.text, criteria=criteria, limit=args.limit)
+
+        outcome = manager.retrieve(query)
+
+    if outcome.skipped_incompatible:
+        print(
+            f"aviso: {outcome.skipped_incompatible} memória(s) fora do modelo de embedding "
+            "atual; rode `jarvis memory reindex`",
+            file=sys.stderr,
+        )
+    if not outcome.results:
+        print("nenhuma memória encontrada")
+        return EXIT_OK
+    for result in outcome.results:
+        _print_memory_row(result.memory)
+        if args.explain:
+            score = result.score
+            semantic = "n/a" if score.semantic is None else f"{score.semantic:.3f}"
+            print(
+                f"    score={score.total:.3f} semantic={semantic} "
+                f"recency={score.recency:.3f} importance={score.importance:.3f} "
+                f"confidence={score.confidence:.3f}"
+            )
+    return EXIT_OK
+
+
+def _memory_forget(args: argparse.Namespace, settings: Settings) -> int:
+    with SqliteMemoryRepository.open(memory_store_path(settings)) as memories:
+        manager = build_memory_manager(memories)
+        if args.purge:
+            removed = manager.purge(args.memory_id)
+            print(f"purged {args.memory_id}" if removed else "nenhuma memória encontrada")
+            return EXIT_OK
+        stored = manager.forget(args.memory_id, reason=args.reason)
+    print(f"forgotten   {stored.memory.memory_id}")
+    print(f"reason      {stored.invalidation_reason}")
+    return EXIT_OK
+
+
+def _memory_reindex(settings: Settings) -> int:
+    with SqliteMemoryRepository.open(memory_store_path(settings)) as memories:
+        updated = build_memory_manager(memories).reembed()
+    print(f"reindexed {updated}")
+    return EXIT_OK
+
+
+def _memory(args: argparse.Namespace, settings: Settings) -> int:
+    if args.memory_command is None:
+        args.memory_parser.print_help()
+        return EXIT_OK
+    if args.memory_command == "add":
+        return _memory_add(args, settings)
+    if args.memory_command == "get":
+        return _memory_get(args, settings)
+    if args.memory_command == "list":
+        return _memory_list(args, settings)
+    if args.memory_command == "search":
+        return _memory_search(args, settings)
+    if args.memory_command == "forget":
+        return _memory_forget(args, settings)
+    return _memory_reindex(settings)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -314,6 +576,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "context":
             return _context(args, settings)
+        if args.command == "memory":
+            return _memory(args, settings)
 
         if args.events_command is None:
             args.events_parser.print_help()
@@ -321,10 +585,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.events_command == "emit":
             return _emit(args, settings)
         return _list(args, settings)
-    except (InvalidEventError, InvalidContextError) as error:
+    except (InvalidEventError, InvalidContextError, InvalidMemoryError) as error:
         print(f"erro: {error}", file=sys.stderr)
         return EXIT_INVALID_INPUT
-    except (EventStoreError, ContextSnapshotError) as error:
+    except (EventStoreError, ContextSnapshotError, MemoryRepositoryError) as error:
         print(f"erro: {error}", file=sys.stderr)
         return EXIT_INFRASTRUCTURE_ERROR
 

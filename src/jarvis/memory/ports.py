@@ -106,7 +106,16 @@ class MemoryRepository(Protocol):
 
     def invalidate(self, memory_id: str, *, reason: str, moment: datetime) -> StoredMemory: ...
 
-    def supersede(self, memory_id: str, *, by: str, moment: datetime) -> StoredMemory: ...
+    def supersede(
+        self, memory_id: str, *, by: str, until: datetime, moment: datetime
+    ) -> StoredMemory:
+        """Fecha a vigência da memória superada em `until` (tipicamente
+        `valid_from` da nova memória — tempo de **domínio**) e carimba
+        `updated_at` com `moment` (tempo de **processamento**). Os dois podem
+        divergir: uma memória derivada de evento tem `created_at`/`valid_from`
+        no tempo do fato (`event.occurred_at`), não no instante em que o
+        Memory System a processou."""
+        ...
 
     def replace_embedding(
         self, memory_id: str, embedding: MemoryEmbedding, *, moment: datetime

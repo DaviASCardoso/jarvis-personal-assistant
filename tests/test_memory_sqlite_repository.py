@@ -202,7 +202,7 @@ class TestSearchFilters:
     ) -> None:
         repository.add(make_memory(memory_id="a"), recorded_at=NOON)
         repository.add(make_memory(memory_id="b"), recorded_at=NOON)
-        repository.supersede("a", by="b", moment=LATER)
+        repository.supersede("a", by="b", until=LATER, moment=LATER)
 
         found_default = {item.memory.memory_id for item in repository.search(MemoryCriteria())}
         assert found_default == {"b"}
@@ -314,7 +314,7 @@ class TestLifecycleOperations:
         repository.add(make_memory(memory_id="a", valid_from=NOON), recorded_at=NOON)
         repository.add(make_memory(memory_id="b", valid_from=LATER), recorded_at=NOON)
 
-        stored = repository.supersede("a", by="b", moment=LATER)
+        stored = repository.supersede("a", by="b", until=LATER, moment=LATER)
 
         assert stored.superseded_by == "b"
         assert stored.memory.valid_until == LATER
@@ -331,7 +331,7 @@ class TestLifecycleOperations:
         )
         repository.add(make_memory(memory_id="b"), recorded_at=NOON)
 
-        stored = repository.supersede("a", by="b", moment=LATER)
+        stored = repository.supersede("a", by="b", until=LATER, moment=LATER)
 
         assert stored.memory.valid_until == expiry
 
@@ -340,9 +340,9 @@ class TestLifecycleOperations:
     ) -> None:
         repository.add(make_memory(memory_id="a"), recorded_at=NOON)
         repository.add(make_memory(memory_id="b"), recorded_at=NOON)
-        first = repository.supersede("a", by="b", moment=LATER)
+        first = repository.supersede("a", by="b", until=LATER, moment=LATER)
 
-        second = repository.supersede("a", by="b", moment=LATER + timedelta(hours=1))
+        second = repository.supersede("a", by="b", until=LATER, moment=LATER + timedelta(hours=1))
 
         assert second == first
 
@@ -352,10 +352,10 @@ class TestLifecycleOperations:
         repository.add(make_memory(memory_id="a"), recorded_at=NOON)
         repository.add(make_memory(memory_id="b"), recorded_at=NOON)
         repository.add(make_memory(memory_id="c"), recorded_at=NOON)
-        repository.supersede("a", by="b", moment=LATER)
+        repository.supersede("a", by="b", until=LATER, moment=LATER)
 
         with pytest.raises(MemoryWriteError, match="já foi superseded"):
-            repository.supersede("a", by="c", moment=LATER)
+            repository.supersede("a", by="c", until=LATER, moment=LATER)
 
     def test_replace_embedding_swaps_the_vector_and_model(
         self, repository: SqliteMemoryRepository
@@ -380,7 +380,7 @@ class TestLifecycleOperations:
             lambda repo: repo.record_access("missing", moment=NOON),
             lambda repo: repo.reinforce("missing", confidence=0.5, moment=NOON),
             lambda repo: repo.invalidate("missing", reason="x", moment=NOON),
-            lambda repo: repo.supersede("missing", by="other", moment=NOON),
+            lambda repo: repo.supersede("missing", by="other", until=NOON, moment=NOON),
         ],
     )
     def test_lifecycle_operations_on_a_missing_memory_are_write_errors(

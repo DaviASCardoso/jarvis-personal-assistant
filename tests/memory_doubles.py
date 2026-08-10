@@ -220,7 +220,9 @@ class FakeMemoryRepository:
         self._rows[memory_id] = updated
         return updated
 
-    def supersede(self, memory_id: str, *, by: str, moment: datetime) -> StoredMemory:
+    def supersede(
+        self, memory_id: str, *, by: str, until: datetime, moment: datetime
+    ) -> StoredMemory:
         existing = self._must_get(memory_id)
         if existing.superseded_by is not None:
             if existing.superseded_by == by:
@@ -228,7 +230,7 @@ class FakeMemoryRepository:
             raise MemoryWriteError(f"{memory_id} já foi superseded por outra memória")
 
         current_valid_until = existing.memory.valid_until
-        closing = moment if current_valid_until is None else min(current_valid_until, moment)
+        closing = until if current_valid_until is None else min(current_valid_until, until)
         assert existing.memory.valid_from is not None
         if closing <= existing.memory.valid_from:
             raise MemoryWriteError(

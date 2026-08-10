@@ -284,7 +284,9 @@ class SqliteMemoryRepository:
         )
         return self._must_get(memory_id)
 
-    def supersede(self, memory_id: str, *, by: str, moment: datetime) -> StoredMemory:
+    def supersede(
+        self, memory_id: str, *, by: str, until: datetime, moment: datetime
+    ) -> StoredMemory:
         existing = self._must_get(memory_id)
         require_identifier(by, field_name="by")
 
@@ -294,7 +296,7 @@ class SqliteMemoryRepository:
             raise MemoryWriteError(f"{memory_id} já foi superseded por outra memória")
 
         current_valid_until = existing.memory.valid_until
-        closing = moment if current_valid_until is None else min(current_valid_until, moment)
+        closing = until if current_valid_until is None else min(current_valid_until, until)
         assert existing.memory.valid_from is not None
         if closing <= existing.memory.valid_from:
             raise MemoryWriteError(

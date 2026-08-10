@@ -74,6 +74,7 @@ class MemoryManager:
         provenance: Provenance,
         importance: float = 0.5,
         confidence: float = 0.8,
+        created_at: datetime | None = None,
         valid_from: datetime | None = None,
         valid_until: datetime | None = None,
         subject: str | None = None,
@@ -82,19 +83,34 @@ class MemoryManager:
         tags: Sequence[str] = (),
         derived_from: Sequence[str] = (),
         embed: bool | None = None,
+        memory_id: str | None = None,
     ) -> StoredMemory:
         """Cria uma memória, ou reforça uma duplicata; nunca as duas.
 
         Ordem: **validação (sem I/O) → consolidação inline → embedding → persistência.**
         Uma memória inválida nunca chega a tocar o repositório ou o provider.
+
+        `created_at`, se informado, é o tempo de **domínio** da afirmação —
+        tipicamente `event.occurred_at` para memórias derivadas de evento (ver
+        `memory/adapters/event_consumer.py`), o mesmo papel que `observed_at`
+        tem no Context Engine. Sem ele, `created_at` é o instante de
+        processamento (`self._clock()`). Já `recorded_at`, em `StoredMemory`,
+        é sempre o instante de processamento — nunca retroativo — como
+        `recorded_at` no Event System.
+
+        `memory_id`, se informado (tipicamente
+        `deterministic_memory_id(source="event", natural_key=event_id)`), é
+        uma segunda linha de defesa contra duplicação: se a checagem de
+        fingerprint abaixo por algum motivo não bastar, a `UNIQUE` do
+        repositório recusa a reinserção em vez de duplicar em silêncio.
         """
         now = self._clock()
         candidate = Memory(
-            memory_id=self._new_id(),
+            memory_id=memory_id if memory_id is not None else self._new_id(),
             type=type,
             content=content,
             provenance=provenance,
-            created_at=now,
+            created_at=created_at if created_at is not None else now,
             importance=importance,
             confidence=confidence,
             valid_from=valid_from,
@@ -123,8 +139,15 @@ class MemoryManager:
 
         contradiction = find_contradiction(candidate, existing, now=now)
         if contradiction is not None:
+            # `until` é o tempo de domínio (valid_from da nova memória), não o
+            # de processamento — as duas podem divergir quando `created_at`
+            # veio de um evento (`event.occurred_at`), não do relógio.
+            assert candidate.valid_from is not None
             self._repository.supersede(
-                contradiction.memory.memory_id, by=stored.memory.memory_id, moment=now
+                contradiction.memory.memory_id,
+                by=stored.memory.memory_id,
+                until=candidate.valid_from,
+                moment=now,
             )
 
         return stored
