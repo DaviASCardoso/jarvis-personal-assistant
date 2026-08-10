@@ -25,19 +25,33 @@ from jarvis.memory.memory import (
     deterministic_memory_id,
     new_memory_id,
 )
+from jarvis.memory.ports import EmbeddingProvider, MemoryCriteria, MemoryRepository
+from jarvis.memory.retrieval import (
+    MemoryRetrieval,
+    RetrievalOutcome,
+    RetrievalQuery,
+    RetrievalResult,
+)
 
 __all__ = [
     "EmbeddingModel",
+    "EmbeddingProvider",
     "EmbeddingProviderError",
     "InvalidMemoryError",
     "Memory",
+    "MemoryCriteria",
     "MemoryEmbedding",
     "MemoryOrigin",
     "MemoryReadError",
+    "MemoryRepository",
     "MemoryRepositoryError",
+    "MemoryRetrieval",
     "MemoryType",
     "MemoryWriteError",
     "Provenance",
+    "RetrievalOutcome",
+    "RetrievalQuery",
+    "RetrievalResult",
     "StoredMemory",
     "content_fingerprint",
     "cosine_similarity",
