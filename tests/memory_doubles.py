@@ -13,13 +13,22 @@ Cada double controla exatamente uma variável do teste:
   e expiração sem esperar de verdade.
 """
 
+import dataclasses
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Final
 
 from jarvis.memory.embedding import EmbeddingModel, MemoryEmbedding
-from jarvis.memory.errors import EmbeddingProviderError
-from jarvis.memory.memory import Memory, MemoryOrigin, MemoryType, Provenance, new_memory_id
+from jarvis.memory.errors import EmbeddingProviderError, MemoryWriteError
+from jarvis.memory.memory import (
+    Memory,
+    MemoryOrigin,
+    MemoryType,
+    Provenance,
+    StoredMemory,
+    new_memory_id,
+)
+from jarvis.memory.ports import MemoryCriteria
 
 DEFAULT_CREATED_AT = datetime(2026, 8, 10, 12, 0, tzinfo=UTC)
 
@@ -123,3 +132,130 @@ class FailingEmbeddingProvider:
 
     def embed(self, text: str) -> tuple[float, ...]:
         raise self._error
+
+
+class FakeMemoryRepository:
+    """Histórico em memória com a mesma semântica de negócio do adapter SQLite:
+    conteúdo imutável (mutações passam por `dataclasses.replace`, que revalida),
+    `invalidate` idempotente, `supersede` validado e fechando `valid_until`,
+    `purge` físico."""
+
+    def __init__(self) -> None:
+        self._rows: dict[str, StoredMemory] = {}
+
+    def add(self, memory: Memory, *, recorded_at: datetime) -> StoredMemory:
+        if memory.memory_id in self._rows:
+            raise MemoryWriteError(f"memory_id {memory.memory_id} já existe")
+        stored = StoredMemory(
+            memory=memory,
+            recorded_at=recorded_at,
+            updated_at=recorded_at,
+            confidence=memory.confidence,
+        )
+        self._rows[memory.memory_id] = stored
+        return stored
+
+    def get(self, memory_id: str) -> StoredMemory | None:
+        return self._rows.get(memory_id)
+
+    def search(self, criteria: MemoryCriteria) -> Sequence[StoredMemory]:
+        rows = list(self._rows.values())
+        if criteria.types is not None:
+            rows = [row for row in rows if row.memory.type in criteria.types]
+        if criteria.subject is not None:
+            rows = [row for row in rows if row.memory.subject == criteria.subject]
+        if criteria.scope is not None:
+            rows = [row for row in rows if row.memory.scope == criteria.scope]
+        if criteria.created_from is not None:
+            rows = [row for row in rows if row.memory.created_at >= criteria.created_from]
+        if criteria.created_until is not None:
+            rows = [row for row in rows if row.memory.created_at < criteria.created_until]
+        if criteria.minimum_importance is not None:
+            rows = [row for row in rows if row.memory.importance >= criteria.minimum_importance]
+        if criteria.active_at is not None:
+            rows = [row for row in rows if row.memory.is_valid_at(criteria.active_at)]
+        if not criteria.include_invalidated:
+            rows = [row for row in rows if row.invalidated_at is None]
+        if not criteria.include_superseded:
+            rows = [row for row in rows if row.superseded_by is None]
+        if criteria.embedding_model is not None:
+            rows = [
+                row
+                for row in rows
+                if row.memory.embedding is not None
+                and row.memory.embedding.model == criteria.embedding_model
+            ]
+        if criteria.tags:
+            rows = [row for row in rows if criteria.tags <= set(row.memory.tags)]
+        if criteria.entities:
+            rows = [row for row in rows if criteria.entities <= set(row.memory.entities)]
+        return rows if criteria.limit is None else rows[: criteria.limit]
+
+    def record_access(self, memory_id: str, *, moment: datetime) -> StoredMemory:
+        existing = self._must_get(memory_id)
+        updated = dataclasses.replace(
+            existing, last_accessed_at=moment, access_count=existing.access_count + 1
+        )
+        self._rows[memory_id] = updated
+        return updated
+
+    def reinforce(self, memory_id: str, *, confidence: float, moment: datetime) -> StoredMemory:
+        existing = self._must_get(memory_id)
+        updated = dataclasses.replace(
+            existing,
+            confidence=confidence,
+            reinforced_count=existing.reinforced_count + 1,
+            updated_at=moment,
+        )
+        self._rows[memory_id] = updated
+        return updated
+
+    def invalidate(self, memory_id: str, *, reason: str, moment: datetime) -> StoredMemory:
+        existing = self._must_get(memory_id)
+        if existing.invalidated_at is not None:
+            return existing
+        updated = dataclasses.replace(
+            existing, invalidated_at=moment, invalidation_reason=reason, updated_at=moment
+        )
+        self._rows[memory_id] = updated
+        return updated
+
+    def supersede(self, memory_id: str, *, by: str, moment: datetime) -> StoredMemory:
+        existing = self._must_get(memory_id)
+        if existing.superseded_by is not None:
+            if existing.superseded_by == by:
+                return existing
+            raise MemoryWriteError(f"{memory_id} já foi superseded por outra memória")
+
+        current_valid_until = existing.memory.valid_until
+        closing = moment if current_valid_until is None else min(current_valid_until, moment)
+        assert existing.memory.valid_from is not None
+        if closing <= existing.memory.valid_from:
+            raise MemoryWriteError(
+                f"não é possível supersede {memory_id}: a vigência resultante seria vazia"
+            )
+
+        new_memory = dataclasses.replace(existing.memory, valid_until=closing)
+        updated = dataclasses.replace(
+            existing, memory=new_memory, superseded_by=by, updated_at=moment
+        )
+        self._rows[memory_id] = updated
+        return updated
+
+    def replace_embedding(
+        self, memory_id: str, embedding: MemoryEmbedding, *, moment: datetime
+    ) -> StoredMemory:
+        existing = self._must_get(memory_id)
+        new_memory = dataclasses.replace(existing.memory, embedding=embedding)
+        updated = dataclasses.replace(existing, memory=new_memory, updated_at=moment)
+        self._rows[memory_id] = updated
+        return updated
+
+    def purge(self, memory_id: str) -> bool:
+        return self._rows.pop(memory_id, None) is not None
+
+    def _must_get(self, memory_id: str) -> StoredMemory:
+        existing = self.get(memory_id)
+        if existing is None:
+            raise MemoryWriteError(f"memória {memory_id} não encontrada")
+        return existing
