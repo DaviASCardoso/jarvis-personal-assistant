@@ -7,6 +7,8 @@ por quem apenas usa o Core.
 Documentação: [`docs/context-system.md`](../../../docs/context-system.md).
 """
 
+from jarvis.context.aggregator import ContextAggregator
+from jarvis.context.engine import ContextEngine
 from jarvis.context.errors import (
     ContextProviderError,
     ContextSnapshotError,
@@ -35,16 +37,24 @@ from jarvis.context.observation import (
     require_identifier,
     require_label,
 )
-from jarvis.context.ports import ContextProvider
+from jarvis.context.ports import ContextProvider, ContextSnapshotRepository
+from jarvis.context.projection import ContextConflict, ContextProjection
+from jarvis.context.snapshot import ContextSnapshot, context_fingerprint, new_snapshot_id
 
 __all__ = [
     "DEFAULT_TTL_POLICY",
     "ActivityContext",
+    "ContextAggregator",
+    "ContextConflict",
+    "ContextEngine",
     "ContextField",
+    "ContextProjection",
     "ContextProvider",
     "ContextProviderError",
+    "ContextSnapshot",
     "ContextSnapshotError",
     "ContextSnapshotReadError",
+    "ContextSnapshotRepository",
     "ContextSnapshotWriteError",
     "ContextUpdate",
     "ConversationContext",
@@ -58,7 +68,9 @@ __all__ = [
     "TaskContext",
     "TtlPolicy",
     "UserContext",
+    "context_fingerprint",
     "iter_fields",
+    "new_snapshot_id",
     "require_aware",
     "require_identifier",
     "require_label",
