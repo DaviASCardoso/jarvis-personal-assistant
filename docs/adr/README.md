@@ -72,3 +72,5 @@ original fazia sentido no momento em que foi tomada.
 | [0006](0006-configuration-vs-preferences-vs-state.md) | Configuração vs. Secrets vs. Preferências vs. Estado | Accepted |
 | [0007](0007-sqlite-event-store.md) | SQLite como armazenamento do Event Store | Accepted |
 | [0008](0008-synchronous-in-process-event-bus.md) | Event Bus síncrono em processo | Accepted |
+| [0009](0009-sqlite-memory-storage.md) | SQLite como armazenamento do Memory System | Accepted |
+| [0010](0010-immutable-memory-and-supersession.md) | Memória imutável, com supersessão em vez de sobrescrita | Accepted |

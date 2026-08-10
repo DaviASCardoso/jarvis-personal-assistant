@@ -67,36 +67,49 @@ src/jarvis/
 │   ├── bus.py         # EventBus, RetryPolicy, DeadLetter
 │   ├── publisher.py   # EventPublisher (store → bus)
 │   └── adapters/      # Infrastructure: serialization, sqlite_store, logging_consumer
-└── context/       # Context Engine (Fase 2)
-    ├── observation.py # Observation[T], Freshness, validadores
-    ├── model.py       # ContextField, os 7 subcontextos, CurrentContext, ContextUpdate
-    ├── freshness.py   # TtlPolicy (TTL por campo)
-    ├── errors.py      # InvalidContextError, ContextProviderError, ContextSnapshotError
-    ├── ports.py       # ContextProvider, ContextSnapshotRepository (Protocols)
-    ├── projection.py  # ContextProjection, ContextConflict
-    ├── aggregator.py  # ContextAggregator
-    ├── consumer.py    # ContextEventConsumer, CONTEXT_EVENT_TYPES
-    ├── engine.py      # ContextEngine (reconstrução, captura, histórico, expiração)
-    └── adapters/      # Infrastructure: time/device provider, serialization, sqlite_snapshots
+├── context/       # Context Engine (Fase 2)
+│   ├── observation.py # Observation[T], Freshness, validadores
+│   ├── model.py       # ContextField, os 7 subcontextos, CurrentContext, ContextUpdate
+│   ├── freshness.py   # TtlPolicy (TTL por campo)
+│   ├── errors.py      # InvalidContextError, ContextProviderError, ContextSnapshotError
+│   ├── ports.py       # ContextProvider, ContextSnapshotRepository (Protocols)
+│   ├── projection.py  # ContextProjection, ContextConflict
+│   ├── aggregator.py  # ContextAggregator
+│   ├── consumer.py    # ContextEventConsumer, CONTEXT_EVENT_TYPES
+│   ├── engine.py      # ContextEngine (reconstrução, captura, histórico, expiração)
+│   └── adapters/      # Infrastructure: time/device provider, serialization, sqlite_snapshots
+└── memory/        # Memory System (Fase 3)
+    ├── memory.py       # MemoryType, MemoryOrigin, Provenance, Memory, StoredMemory
+    ├── embedding.py    # EmbeddingModel, MemoryEmbedding, cosine_similarity
+    ├── errors.py       # InvalidMemoryError, EmbeddingProviderError, MemoryRepositoryError
+    ├── ports.py        # MemoryRepository, EmbeddingProvider (Protocols), MemoryCriteria
+    ├── ranking.py      # RankingWeights, meias-vidas por tipo, RelevanceScore, score()
+    ├── retrieval.py    # RetrievalQuery, RetrievalResult/Outcome, MemoryRetrieval
+    ├── consolidation.py # find_duplicate, find_contradiction, find_promotions
+    ├── manager.py      # MemoryManager (remember, retrieve, ciclo de vida, reembed, consolidate)
+    └── adapters/       # Infrastructure: sqlite_repository, hashing_embeddings,
+                        #   event_consumer, context_bridge
 
-tests/               # estrutura plana; `factories.py` monta eventos e
-                     # `context_doubles.py` monta providers/repositórios de teste
+tests/               # estrutura plana; `factories.py` monta eventos,
+                     # `context_doubles.py` e `memory_doubles.py` montam doubles de teste
 docs/
 ├── README.md · architecture.md · architecture-contracts.md
-├── phase-1-plan.md · phase-2-plan.md   # planos aprovados das Fases 1 e 2
-├── event-system.md · context-system.md # documentação de implementação
-├── memory-system.md · agent-runtime.md
-├── skills.md · mcp.md · security.md    # ainda conceituais
-└── adr/                                # 0001–0008
+├── phase-1-plan.md · phase-2-plan.md · phase-3-plan.md  # planos aprovados das Fases 1–3
+├── event-system.md · context-system.md · memory-system.md  # documentação de implementação
+├── agent-runtime.md · skills.md · mcp.md · security.md      # ainda conceituais
+└── adr/                                # 0001–0010
 ```
 
-O projeto concluiu as Fases 1 e 2: existem Event System real (domínio, bus, store
-SQLite, consumers) e Context Engine real (observações com proveniência e TTL por
-campo, providers de tempo e dispositivo, agregação com conflitos explícitos,
-consumer de eventos, reconstrução a partir do Event Store e snapshots persistidos).
-**Não** há Memory, Agent Runtime, Skills, MCP ou Voice — esses seguem sem código.
-`cli.py` é o composition root: único módulo que conhece Core, Infrastructure e
-Interfaces ao mesmo tempo.
+O projeto concluiu as Fases 1, 2 e 3: existem Event System real (domínio, bus,
+store SQLite, consumers), Context Engine real (observações com proveniência e TTL
+por campo, providers de tempo e dispositivo, agregação com conflitos explícitos,
+consumer de eventos, reconstrução a partir do Event Store e snapshots persistidos)
+e Memory System real (memória imutável com supersessão, `EmbeddingProvider`
+independente de LLM, retrieval estruturado e semântico, ranking explicável,
+ciclo de vida completo, consolidação por deduplicação/contradição/promoção,
+integração de mão única com Event System e Context Engine). **Não** há Agent
+Runtime, Skills, MCP ou Voice — esses seguem sem código. `cli.py` é o composition
+root: único módulo que conhece Core, Infrastructure e Interfaces ao mesmo tempo.
 
 O padrão estabelecido na Fase 1 para um componente novo é `src/jarvis/<componente>/`
 com módulos de Core na raiz e um subpacote `adapters/` — **não** a separação física

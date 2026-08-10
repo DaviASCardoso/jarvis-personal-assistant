@@ -3,10 +3,11 @@
 Agente pessoal de IA, construído de forma incremental e orientado a eventos,
 contexto e memória.
 
-> **Status:** Fase 2 — Context Engine concluída. O Jarvis registra acontecimentos
-> como fatos imutáveis e os projeta em um estado atual consultável, com origem,
-> instante de observação e validade por campo. Memória, raciocínio e voz ainda não
-> existem — o planejamento completo está em [ROADMAP.md](ROADMAP.md).
+> **Status:** Fase 3 — Memory System concluída. O Jarvis registra acontecimentos
+> como fatos imutáveis, os projeta em um estado atual consultável e agora também
+> lembra: memórias tipadas, com proveniência, validade e um ranking explicável,
+> independentes de qualquer LLM. Raciocínio e voz ainda não existem — o
+> planejamento completo está em [ROADMAP.md](ROADMAP.md).
 
 ## Requisitos
 
@@ -57,6 +58,26 @@ fonte de verdade: um processo novo a reconstrói a partir do event store. Campos
 observação aparecem como `-` e nunca são preenchidos por suposição. Os snapshots
 ficam em `<JARVIS_DATA_DIR>/context.db`. Detalhes em
 [`docs/context-system.md`](docs/context-system.md).
+
+### Memória
+
+```bash
+# cria uma memória (conteúdo é o único texto livre; o resto é tipado)
+uv run jarvis memory add --type preference --subject preference.language \
+    --content "prefere Python para scripts" --confidence 0.9
+
+uv run jarvis memory list --type preference
+uv run jarvis memory search "o que ele usa para programar?" --explain
+uv run jarvis memory forget <memory_id> --reason "..."   # invalida, preserva evidência
+uv run jarvis memory forget <memory_id> --reason "..." --purge  # apaga de vez
+```
+
+Memória é independente de LLM: a busca semântica usa um `EmbeddingProvider` local
+e determinístico (similaridade lexical, não um modelo de verdade — um provider
+real chega quando houver raciocínio). Contradições não sobrescrevem: a memória
+nova supersede a antiga, que continua consultável com `--include-superseded`. As
+memórias ficam em `<JARVIS_DATA_DIR>/memory.db`. Detalhes em
+[`docs/memory-system.md`](docs/memory-system.md).
 
 ## Desenvolvimento
 

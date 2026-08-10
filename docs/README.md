@@ -24,15 +24,20 @@ Esta pasta reúne a documentação técnica do Jarvis.
   descreve o Context Engine que existe em `src/jarvis/context/` desde a Fase 2
   (`Observation`, os sete subcontextos, TTL por campo, conflitos, eventos
   projetados, reconstrução, snapshots com expiração lógica, comandos de CLI).
-- [`phase-1-plan.md`](phase-1-plan.md) e [`phase-2-plan.md`](phase-2-plan.md) — os
-  planos técnicos aprovados que guiaram as Fases 1 e 2, incluindo as decisões
-  consideradas e as descartadas.
+- [`memory-system.md`](memory-system.md) — **documentação de implementação**:
+  descreve o Memory System que existe em `src/jarvis/memory/` desde a Fase 3
+  (`Memory`/`StoredMemory`, `EmbeddingProvider` e o adapter de hashing,
+  retrieval estruturado e semântico, ranking explicável, ciclo de vida,
+  consolidação por deduplicação/contradição/promoção, integração com Event
+  System e Context Engine, comandos de CLI).
+- [`phase-1-plan.md`](phase-1-plan.md), [`phase-2-plan.md`](phase-2-plan.md) e
+  [`phase-3-plan.md`](phase-3-plan.md) — os planos técnicos aprovados que
+  guiaram as Fases 1, 2 e 3, incluindo as decisões consideradas e as
+  descartadas.
 - Documentação conceitual por componente, criada na subfase 0.5 — explica
   cada contrato aprovado na 0.3 sem repeti-lo e sem implementar nada ainda
   (cada componente segue sem código real até sua fase correspondente no
   [roadmap](../ROADMAP.md)):
-  - [`memory-system.md`](memory-system.md) — tipos de memória,
-    importance/confidence/relevance, `EmbeddingProvider` (Fase 3).
   - [`agent-runtime.md`](agent-runtime.md) — loop observe→...→execute,
     `Decision`, `LLMProvider` (Fase 4).
   - [`skills.md`](skills.md) — distinção Skill/Tool/MCP, contrato de

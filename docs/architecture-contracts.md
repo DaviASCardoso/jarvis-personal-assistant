@@ -600,6 +600,10 @@ consequências completas:
   Event Store (Fase 1).
 - [ADR-0008](adr/0008-synchronous-in-process-event-bus.md) — Event Bus
   síncrono em processo (Fase 1).
+- [ADR-0009](adr/0009-sqlite-memory-storage.md) — SQLite como armazenamento do
+  Memory System (Fase 3).
+- [ADR-0010](adr/0010-immutable-memory-and-supersession.md) — Memória
+  imutável, com supersessão em vez de sobrescrita (Fase 3).
 
 Decisões de campo-a-campo (schema exato de Event/Context/Memory, nomes
 exatos da taxonomia de erro) **não** viram ADR — são detalhe de contrato,
