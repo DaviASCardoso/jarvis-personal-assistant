@@ -120,7 +120,7 @@ class TestSemanticRetrieval:
         outcome = retrieval.retrieve(RetrievalQuery(text="python"))
 
         assert [item.memory.memory.memory_id for item in outcome.results] == ["close", "far"]
-        assert outcome.results[0].score > outcome.results[1].score
+        assert outcome.results[0].score.total > outcome.results[1].score.total
 
     def test_a_memory_without_embedding_does_not_break_the_query(self) -> None:
         repository = FakeMemoryRepository()

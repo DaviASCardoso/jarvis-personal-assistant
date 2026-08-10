@@ -26,6 +26,7 @@ from jarvis.memory.memory import (
     new_memory_id,
 )
 from jarvis.memory.ports import EmbeddingProvider, MemoryCriteria, MemoryRepository
+from jarvis.memory.ranking import DEFAULT_RANKING_WEIGHTS, RankingWeights, RelevanceScore
 from jarvis.memory.retrieval import (
     MemoryRetrieval,
     RetrievalOutcome,
@@ -34,6 +35,7 @@ from jarvis.memory.retrieval import (
 )
 
 __all__ = [
+    "DEFAULT_RANKING_WEIGHTS",
     "EmbeddingModel",
     "EmbeddingProvider",
     "EmbeddingProviderError",
@@ -49,6 +51,8 @@ __all__ = [
     "MemoryType",
     "MemoryWriteError",
     "Provenance",
+    "RankingWeights",
+    "RelevanceScore",
     "RetrievalOutcome",
     "RetrievalQuery",
     "RetrievalResult",
