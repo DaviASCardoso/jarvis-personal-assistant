@@ -3,18 +3,18 @@
 Segue a taxonomia compartilhada de
 [`architecture-contracts.md §13`](../../../docs/architecture-contracts.md#13-error-contract):
 violação de invariante do domínio é permanente, falha de adapter é transitória por
-padrão. Não existe uma categoria `ProviderError` compartilhada ainda — ela só faz
-sentido quando houver um segundo provider fora do Memory System (LLM/MCP, Fase 4).
+padrão. `EmbeddingProviderError` herda de `ProviderError` desde a Fase 4, quando
+o `LLMProvider` deu à categoria compartilhada um segundo consumidor real.
 """
 
-from jarvis.errors import DomainError, InfrastructureError
+from jarvis.errors import DomainError, InfrastructureError, ProviderError
 
 
 class InvalidMemoryError(DomainError):
     """Uma memória, payload ou consulta viola uma invariante do domínio."""
 
 
-class EmbeddingProviderError(InfrastructureError):
+class EmbeddingProviderError(ProviderError):
     """Falha declarada de um `EmbeddingProvider`.
 
     É o único erro de provider que o `MemoryManager` degrada (memória criada sem

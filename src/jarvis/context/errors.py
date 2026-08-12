@@ -3,18 +3,18 @@
 Segue a taxonomia compartilhada de
 [`architecture-contracts.md §13`](../../../docs/architecture-contracts.md#13-error-contract):
 violação de invariante do domínio é permanente, falha de adapter é transitória por
-padrão. Não existe uma categoria `ProviderError` compartilhada ainda — ela só faz
-sentido quando houver um segundo provider fora do Context Engine (LLM/MCP, Fase 4).
+padrão. `ContextProviderError` herda de `ProviderError` desde a Fase 4, quando o
+`LLMProvider` deu à categoria compartilhada um segundo consumidor real.
 """
 
-from jarvis.errors import DomainError, InfrastructureError
+from jarvis.errors import DomainError, InfrastructureError, ProviderError
 
 
 class InvalidContextError(DomainError):
     """Uma observação, rótulo ou payload viola uma invariante do contexto."""
 
 
-class ContextProviderError(InfrastructureError):
+class ContextProviderError(ProviderError):
     """Falha declarada de um Context Provider.
 
     É o único erro de provider que o agregador degrada: um adapter que deixa

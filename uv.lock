@@ -102,6 +102,7 @@ name = "jarvis"
 version = "0.1.0.dev0"
 source = { editable = "." }
 dependencies = [
+    { name = "pydantic" },
     { name = "pydantic-settings" },
 ]
 
@@ -113,7 +114,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pydantic-settings", specifier = ">=2.7" }]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.9" },
+    { name = "pydantic-settings", specifier = ">=2.7" },
+]
 
 [package.metadata.requires-dev]
 dev = [

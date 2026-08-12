@@ -6,6 +6,10 @@ readme = "README.md"
 requires-python = ">=3.13"
 license = { text = "MIT" }
 dependencies = [
+    # `pydantic` é dependência de `pydantic-settings`, mas está declarada aqui
+    # porque `config.py` importa `SecretStr` diretamente: depender de trânsito
+    # alheio é como uma atualização de terceiros quebra o build sem aviso.
+    "pydantic>=2.9",
     "pydantic-settings>=2.7",
 ]
 
@@ -53,4 +57,10 @@ strict = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --strict-markers --strict-config"
+# `-m "not external"` mantém a promessa de que `uv run pytest` passa sem API key,
+# sem internet e sem quota. O smoke test real roda sob demanda:
+# `uv run pytest -m external`.
+addopts = "-q --strict-markers --strict-config -m 'not external'"
+markers = [
+    "external: exige credencial e serviço externo reais; fora da suíte padrão",
+]

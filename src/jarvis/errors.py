@@ -6,8 +6,8 @@ que a lógica de retry consulte essa classificação em vez de cada componente
 inventar o próprio critério.
 
 Só as categorias com consumidor real existem aqui. As demais previstas no contrato
-(`ProviderError`, `PolicyDenied`, `UserFacingError`) serão adicionadas pelas fases
-que as introduzirem.
+(`PolicyDenied`, `UserFacingError`) serão adicionadas pelas fases que as
+introduzirem.
 """
 
 from typing import ClassVar
@@ -34,3 +34,12 @@ class InfrastructureError(JarvisError):
     """
 
     retryable: ClassVar[bool] = True
+
+
+class ProviderError(InfrastructureError):
+    """Falha declarada por um provider externo ao Core (LLM, embedding, MCP, API).
+
+    A categoria existe a partir da Fase 4, quando passou a haver mais de um tipo
+    de provider: sem ela, lógica de retry teria de enumerar erros de cada
+    componente em vez de perguntar "isto é falha de provider e é transitória?".
+    """
