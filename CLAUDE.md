@@ -78,38 +78,59 @@ src/jarvis/
 │   ├── consumer.py    # ContextEventConsumer, CONTEXT_EVENT_TYPES
 │   ├── engine.py      # ContextEngine (reconstrução, captura, histórico, expiração)
 │   └── adapters/      # Infrastructure: time/device provider, serialization, sqlite_snapshots
-└── memory/        # Memory System (Fase 3)
-    ├── memory.py       # MemoryType, MemoryOrigin, Provenance, Memory, StoredMemory
-    ├── embedding.py    # EmbeddingModel, MemoryEmbedding, cosine_similarity
-    ├── errors.py       # InvalidMemoryError, EmbeddingProviderError, MemoryRepositoryError
-    ├── ports.py        # MemoryRepository, EmbeddingProvider (Protocols), MemoryCriteria
-    ├── ranking.py      # RankingWeights, meias-vidas por tipo, RelevanceScore, score()
-    ├── retrieval.py    # RetrievalQuery, RetrievalResult/Outcome, MemoryRetrieval
-    ├── consolidation.py # find_duplicate, find_contradiction, find_promotions
-    ├── manager.py      # MemoryManager (remember, retrieve, ciclo de vida, reembed, consolidate)
-    └── adapters/       # Infrastructure: sqlite_repository, hashing_embeddings,
-                        #   event_consumer, context_bridge
+├── memory/        # Memory System (Fase 3)
+│   ├── memory.py       # MemoryType, MemoryOrigin, Provenance, Memory, StoredMemory
+│   ├── embedding.py    # EmbeddingModel, MemoryEmbedding, cosine_similarity
+│   ├── errors.py       # InvalidMemoryError, EmbeddingProviderError, MemoryRepositoryError
+│   ├── ports.py        # MemoryRepository, EmbeddingProvider (Protocols), MemoryCriteria
+│   ├── ranking.py      # RankingWeights, meias-vidas por tipo, RelevanceScore, score()
+│   ├── retrieval.py    # RetrievalQuery, RetrievalResult/Outcome, MemoryRetrieval
+│   ├── consolidation.py # find_duplicate, find_contradiction, find_promotions
+│   ├── manager.py      # MemoryManager (remember, retrieve, ciclo de vida, reembed, consolidate)
+│   └── adapters/       # Infrastructure: sqlite_repository, hashing_embeddings,
+│                       #   event_consumer, context_bridge
+└── agent/         # Agent Runtime (Fase 4)
+    ├── errors.py       # InvalidDecisionError, LLM*Error, PromptTooLargeError
+    ├── messages.py     # Role, Message, LLMRequest/Response, StopReason, TokenUsage
+    ├── ports.py        # LLMProvider (Protocol)
+    ├── decision.py     # DecisionType, MemoryProposal, ActionProposal, Decision, parse_decision
+    ├── conversation.py # ConversationTurn, Conversation (em memória, não persistida)
+    ├── input.py        # UserMessage, EventTrigger, EventSummary, AgentInput
+    ├── importance.py   # ImportanceWeights/Assessment, assess(), should_reason()
+    ├── prompt.py       # SYSTEM_INSTRUCTION, ReasoningEnvelope, PromptBudget, PromptBuilder
+    ├── runtime.py      # AgentRuntime, AgentTurn, LLMRetryPolicy, GenerationDefaults
+    └── adapters/       # Infrastructure: gemini (REST via urllib, sem SDK)
 
-tests/               # estrutura plana; `factories.py` monta eventos,
-                     # `context_doubles.py` e `memory_doubles.py` montam doubles de teste
+tests/               # estrutura plana; `factories.py` monta eventos, e
+                     # `context_doubles.py`, `memory_doubles.py`, `agent_doubles.py`
+                     # montam os doubles de teste
 docs/
 ├── README.md · architecture.md · architecture-contracts.md
-├── phase-1-plan.md · phase-2-plan.md · phase-3-plan.md  # planos aprovados das Fases 1–3
-├── event-system.md · context-system.md · memory-system.md  # documentação de implementação
-├── agent-runtime.md · skills.md · mcp.md · security.md      # ainda conceituais
-└── adr/                                # 0001–0010
+├── phase-1-plan.md … phase-4-plan.md       # planos aprovados das Fases 1–4
+├── event-system.md · context-system.md · memory-system.md · agent-runtime.md
+│                                           # documentação de implementação
+├── skills.md · mcp.md · security.md        # ainda conceituais
+└── adr/                                    # 0001–0012
 ```
 
-O projeto concluiu as Fases 1, 2 e 3: existem Event System real (domínio, bus,
+O projeto concluiu as Fases 1 a 4: existem Event System real (domínio, bus,
 store SQLite, consumers), Context Engine real (observações com proveniência e TTL
 por campo, providers de tempo e dispositivo, agregação com conflitos explícitos,
-consumer de eventos, reconstrução a partir do Event Store e snapshots persistidos)
-e Memory System real (memória imutável com supersessão, `EmbeddingProvider`
+consumer de eventos, reconstrução a partir do Event Store e snapshots persistidos),
+Memory System real (memória imutável com supersessão, `EmbeddingProvider`
 independente de LLM, retrieval estruturado e semântico, ranking explicável,
 ciclo de vida completo, consolidação por deduplicação/contradição/promoção,
-integração de mão única com Event System e Context Engine). **Não** há Agent
-Runtime, Skills, MCP ou Voice — esses seguem sem código. `cli.py` é o composition
-root: único módulo que conhece Core, Infrastructure e Interfaces ao mesmo tempo.
+integração de mão única com Event System e Context Engine) e Agent Runtime real
+(`LLMProvider` vendor-agnóstico com adapter Gemini em nuvem, `Decision`
+estruturada e validada, Importance Engine determinístico pré-LLM, prompt
+assembly com orçamento, retry/timeout/observabilidade).
+
+**Não** há Policy Engine, Skills, MCP, Notification System ou Voice — esses
+seguem sem código. Consequência direta: o Agent Runtime **propõe e para**;
+`Decision.act` volta como proposta não executada, `remember` não grava e
+`notify`/`ask` não entregam nada. `cli.py` é o composition root: único módulo
+que conhece Core, Infrastructure e Interfaces ao mesmo tempo, e único que lê a
+credencial do LLM.
 
 O padrão estabelecido na Fase 1 para um componente novo é `src/jarvis/<componente>/`
 com módulos de Core na raiz e um subpacote `adapters/` — **não** a separação física
@@ -208,6 +229,11 @@ Detalhe completo: [`architecture-contracts.md §8`](docs/architecture-contracts.
 - Atualize `docs/architecture-contracts.md` ou crie um ADR apenas quando a
   implementação introduzir uma decisão arquitetural genuinamente nova — não
   quando ela apenas materializa o que já está documentado.
+- `JARVIS_Arquitetura.html` (não versionado, ver `.gitignore`) é material de
+  apresentação: existe só para mostrar o projeto visualmente a outras pessoas.
+  Não é fonte de verdade sobre arquitetura, escopo ou estado do roadmap, não
+  precisa ser atualizado junto do código e não deve ser lido para planejar
+  nem para decidir implementação. Ignore-o.
 
 ## 9. Workflow de Git e commits
 
@@ -241,6 +267,12 @@ Detalhe completo: [`architecture-contracts.md §8`](docs/architecture-contracts.
   services sem comportamento, factories genéricas, container de DI, ou
   qualquer abstração sem consumidor real — princípio explícito da 0.3
   (`architecture-contracts.md §1`) e do `ROADMAP.md` (regra 11).
+- **Não fazer o Agent Runtime aplicar as decisões que produz.** Ele monta
+  contexto, raciocina e devolve uma `Decision`; gravar a memória proposta,
+  entregar a notificação ou executar a Skill depende de componentes que ainda
+  não existem (Policy Engine e Skills na Fase 5, Notification na 7.3). Dar
+  esse atalho ao runtime quebraria o [ADR-0003](docs/adr/0003-policy-engine-safety-authority.md)
+  e os testes estruturais de `tests/test_agent_architecture.py`.
 - Manter o código executável ao final de cada subfase: `uv run pytest`,
   `uv run ruff check`, `uv run ruff format --check` e `uv run mypy` devem
   passar, e o CLI (`uv run jarvis`) deve continuar funcionando.

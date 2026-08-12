@@ -79,13 +79,37 @@ nova supersede a antiga, que continua consultável com `--include-superseded`. A
 memórias ficam em `<JARVIS_DATA_DIR>/memory.db`. Detalhes em
 [`docs/memory-system.md`](docs/memory-system.md).
 
+### Agente
+
+Exige `JARVIS_GEMINI_API_KEY` (Google AI Studio, tier gratuito). Sem ela, só os
+comandos `agent` falham — todo o resto do Jarvis continua funcionando offline.
+
+```bash
+uv run jarvis agent ask "o que aconteceu enquanto eu estava fora?"
+
+# conversa multi-turno: uma mensagem por linha na entrada padrão
+printf 'oi\ne o que mais?\n' | uv run jarvis agent chat
+
+# avalia proativamente um evento já registrado
+uv run jarvis agent react --event-id <id>
+```
+
+O agente monta contexto + memória + conversa, chama o LLM através de um port
+vendor-agnóstico e devolve uma `Decision` estruturada (`ignore`, `remember`,
+`notify`, `ask`, `act`, `act_and_notify`). **Ele nunca executa nada**: uma
+proposta de ação volta marcada como não executada, porque quem autoriza é o
+Policy Engine, que chega na Fase 5. Um evento de baixa importância vira
+silêncio sem sequer chamar o modelo. Detalhes em
+[`docs/agent-runtime.md`](docs/agent-runtime.md).
+
 ## Desenvolvimento
 
 ```bash
-uv run pytest           # testes
-uv run ruff format .    # formatação
-uv run ruff check .     # lint
-uv run mypy             # type checking
+uv run pytest             # testes — sem rede, sem credencial, sem quota
+uv run pytest -m external # smoke test contra a API real (opcional, exige chave)
+uv run ruff format .      # formatação
+uv run ruff check .       # lint
+uv run mypy               # type checking
 ```
 
 Esses quatro comandos rodam automaticamente em CI (GitHub Actions) a cada push

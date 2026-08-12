@@ -30,16 +30,19 @@ Esta pasta reúne a documentação técnica do Jarvis.
   retrieval estruturado e semântico, ranking explicável, ciclo de vida,
   consolidação por deduplicação/contradição/promoção, integração com Event
   System e Context Engine, comandos de CLI).
-- [`phase-1-plan.md`](phase-1-plan.md), [`phase-2-plan.md`](phase-2-plan.md) e
-  [`phase-3-plan.md`](phase-3-plan.md) — os planos técnicos aprovados que
-  guiaram as Fases 1, 2 e 3, incluindo as decisões consideradas e as
-  descartadas.
+- [`agent-runtime.md`](agent-runtime.md) — **documentação de implementação**:
+  descreve o Agent Runtime que existe em `src/jarvis/agent/` desde a Fase 4
+  (`LLMProvider` e o adapter Gemini, `Decision` e seu parsing, Importance
+  Engine determinístico, prompt assembly com orçamento, erros/timeout/retry,
+  observabilidade, comandos de CLI e limitações conhecidas).
+- [`phase-1-plan.md`](phase-1-plan.md), [`phase-2-plan.md`](phase-2-plan.md),
+  [`phase-3-plan.md`](phase-3-plan.md) e [`phase-4-plan.md`](phase-4-plan.md) —
+  os planos técnicos aprovados que guiaram as Fases 1 a 4, incluindo as
+  decisões consideradas e as descartadas.
 - Documentação conceitual por componente, criada na subfase 0.5 — explica
   cada contrato aprovado na 0.3 sem repeti-lo e sem implementar nada ainda
   (cada componente segue sem código real até sua fase correspondente no
   [roadmap](../ROADMAP.md)):
-  - [`agent-runtime.md`](agent-runtime.md) — loop observe→...→execute,
-    `Decision`, `LLMProvider` (Fase 4).
   - [`skills.md`](skills.md) — distinção Skill/Tool/MCP, contrato de
     Skill, cadeia Agent→Skill→Tool Router→MCP (Fase 5).
   - [`mcp.md`](mcp.md) — MCP Client/Server/Tool, Tool Router (Fase 5).

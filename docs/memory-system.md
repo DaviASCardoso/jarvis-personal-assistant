@@ -130,8 +130,11 @@ vetor — e sem nenhuma dependência ou serviço externo, para que o Memory
 System funcione sem nenhum LLM configurado (`PHASE-3.md §17`).
 
 É honesto sobre o que é: mede sobreposição lexical, não significado. Um
-provider de vendor real, com similaridade semântica de verdade, é escopo da
-Fase 4 — quando houver credenciais e configuração para ele.
+provider de vendor real continua sendo escopo de uma fase futura: a Fase 4
+trouxe credenciais e um `LLMProvider` de nuvem, mas `EmbeddingProvider` é port
+**separado** ([ADR-0002](adr/0002-llm-provider-abstraction.md)), e trocá-lo
+tornaria `jarvis memory add` dependente de rede e quota, além de exigir
+reindexar tudo que já foi gravado.
 
 ### Geração, falha e incompatibilidade
 
@@ -404,9 +407,10 @@ propriedades faz sentido para `Settings`. Ver
 - **PostgreSQL + pgvector** — a medição mostrou desnecessário nesta escala;
   ver [ADR-0009](adr/0009-sqlite-memory-storage.md) para o gatilho de
   escalada.
-- **Adapter de embedding de vendor** — Fase 4, com credenciais e configuração.
-- **Emissão de eventos de memória** — sem consumidor real; Fases 4/7, quando
-  o Agent Runtime agir sobre memória.
+- **Adapter de embedding de vendor** — uma fase futura; a Fase 4 deixou o
+  `EmbeddingProvider` local de propósito (ver acima).
+- **Emissão de eventos de memória** — sem consumidor real; Fase 7, quando o
+  Agent Runtime puder agir sobre memória (a Fase 4 apenas *propõe* lembrar).
 - **Consolidação por inferência semântica** (agrupar conteúdos parecidos sem
   `subject` comum) — exige julgamento que só o Agent Runtime terá;
   `PHASE-3.md §24` proíbe o Memory System de tentar ser "inteligente".

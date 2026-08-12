@@ -4,7 +4,10 @@ Produz vetores por *hashing* de trigramas de caracteres do texto normalizado —
 **similaridade lexical, não semântica**. Existe para que o Memory System
 funcione de ponta a ponta sem nenhum LLM ou serviço externo configurado
 (`PHASE-3.md §17`); um provider de vendor real, com similaridade semântica de
-verdade, é escopo da Fase 4, quando houver credenciais e configuração para ele.
+verdade, é escopo de uma fase futura. A Fase 4 trouxe credenciais e um
+`LLMProvider` de nuvem, mas deliberadamente não mexeu aqui: `EmbeddingProvider`
+é port separado (ADR-0002), e trocá-lo tornaria `memory add` dependente de rede
+e exigiria reindexar tudo que já foi gravado.
 
 Determinístico: o mesmo texto produz sempre o mesmo vetor, entre execuções e
 processos — é o que torna os testes de retrieval reproduzíveis sem gravar

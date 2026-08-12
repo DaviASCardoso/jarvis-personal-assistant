@@ -69,8 +69,8 @@ flowchart TD
         MPROC["Procedural"]
     end
 
-    subgraph AGENT["Agent Runtime (Fase 4)"]
-        LLM["LLM Provider (port)"]
+    subgraph AGENT["Agent Runtime (Fase 4, implementado)"]
+        LLM["LLM Provider (port) → Gemini"]
         REASON["Reasoning → Decision"]
     end
 

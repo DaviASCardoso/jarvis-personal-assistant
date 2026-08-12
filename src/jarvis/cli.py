@@ -3,10 +3,14 @@
 Este é o único módulo autorizado a conhecer Core, Infrastructure e Interfaces ao
 mesmo tempo (ADR-0001): ele carrega a configuração, instancia os adapters concretos
 (`SqliteEventStore`, `LoggingEventConsumer`, os Context Providers, o repositório de
-snapshots, o repositório de memórias, o `EmbeddingProvider`) e os injeta nos
-serviços do Core (`EventBus`, `EventPublisher`, `ContextAggregator`,
-`ContextEngine`, `MemoryManager`). Nenhum módulo do Core importa
-`jarvis.events.adapters`, `jarvis.context.adapters` nem `jarvis.memory.adapters`.
+snapshots, o repositório de memórias, o `EmbeddingProvider`, o `GeminiLLMProvider`)
+e os injeta nos serviços do Core (`EventBus`, `EventPublisher`, `ContextAggregator`,
+`ContextEngine`, `MemoryManager`, `AgentRuntime`). Nenhum módulo do Core importa
+`jarvis.events.adapters`, `jarvis.context.adapters`, `jarvis.memory.adapters` nem
+`jarvis.agent.adapters`.
+
+É também o único módulo que lê a credencial do LLM (`build_llm_provider`): o
+Agent Runtime recebe um provider já construído e nunca vê `Settings`.
 """
 
 import argparse
@@ -18,6 +22,24 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from jarvis import __version__
+from jarvis.agent import (
+    AgentRuntime,
+    AgentTurn,
+    Conversation,
+    ConversationTurn,
+    EventSummary,
+    EventTrigger,
+    GenerationDefaults,
+    InvalidDecisionError,
+    InvalidLLMRequestError,
+    LLMAuthenticationError,
+    LLMProviderError,
+    LLMRetryPolicy,
+    PromptTooLargeError,
+    Role,
+    UserMessage,
+)
+from jarvis.agent.adapters.gemini import GeminiLLMProvider
 from jarvis.config import LogLevel, Settings, load_settings
 from jarvis.context import (
     ContextAggregator,
@@ -65,6 +87,7 @@ EXIT_INFRASTRUCTURE_ERROR = 1
 EXIT_INVALID_INPUT = 2
 
 DEFAULT_LIST_LIMIT = 20
+DEFAULT_RECENT_EVENTS = 10
 
 # Duas ausências distintas, e a distinção precisa aparecer: `-` é "nunca observado",
 # `(nenhum)` é "alguém observou que não há".
@@ -113,9 +136,44 @@ def memory_store_path(settings: Settings) -> Path:
 
 def build_memory_manager(memories: SqliteMemoryRepository) -> MemoryManager:
     """`HashingEmbeddingProvider`: local e determinístico, para que o Memory
-    System funcione sem nenhum LLM configurado (`PHASE-3.md §17`). Um adapter
-    de vendor real é escopo da Fase 4."""
+    System funcione sem nenhum LLM configurado (`PHASE-3.md §17`).
+
+    Continua local na Fase 4 de propósito: `EmbeddingProvider` é port separado
+    de `LLMProvider` (ADR-0002), e trocá-lo por um serviço de nuvem tornaria
+    `jarvis memory add` dependente de rede e quota, além de exigir reindexar
+    tudo que já foi gravado. Um adapter de vendor entra quando houver
+    necessidade medida de qualidade semântica."""
     return MemoryManager(repository=memories, embeddings=HashingEmbeddingProvider())
+
+
+def build_llm_provider(settings: Settings) -> GeminiLLMProvider:
+    """Único lugar que lê a credencial. O runtime recebe o provider já pronto e
+    nunca vê `Settings` — é o que impede um secret de chegar ao prompt."""
+    if settings.gemini_api_key is None:
+        raise LLMAuthenticationError("JARVIS_GEMINI_API_KEY não configurada; veja .env.example")
+    return GeminiLLMProvider(
+        api_key=settings.gemini_api_key.get_secret_value(), model=settings.gemini_model
+    )
+
+
+def build_agent_runtime(
+    settings: Settings,
+    *,
+    context: ContextEngine,
+    memories: SqliteMemoryRepository,
+) -> AgentRuntime:
+    return AgentRuntime(
+        llm=build_llm_provider(settings),
+        context_reader=context.current,
+        memory=build_memory_manager(memories),
+        importance_threshold=settings.agent_importance_threshold,
+        retry=LLMRetryPolicy(max_attempts=settings.llm_max_attempts),
+        generation=GenerationDefaults(
+            temperature=settings.llm_temperature,
+            max_output_tokens=settings.llm_max_output_tokens,
+            timeout_seconds=settings.llm_timeout_seconds,
+        ),
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -222,6 +280,22 @@ def build_parser() -> argparse.ArgumentParser:
     memory_actions.add_parser(
         "reindex", help="Regenera embeddings incompatíveis com o modelo atual."
     )
+
+    agent = subparsers.add_parser("agent", help="Conversa com o agente e avalia eventos.")
+    agent.set_defaults(agent_parser=agent)
+    agent_actions = agent.add_subparsers(dest="agent_command")
+
+    ask = agent_actions.add_parser("ask", help="Faz uma pergunta e imprime a decisão.")
+    ask.add_argument("text", help="A mensagem para o agente.")
+    ask.add_argument("--conversation-id", help="Correlaciona turnos da mesma conversa.")
+
+    chat = agent_actions.add_parser(
+        "chat", help="Conversa multi-turno lendo uma mensagem por linha da entrada padrão."
+    )
+    chat.add_argument("--conversation-id")
+
+    react = agent_actions.add_parser("react", help="Avalia proativamente um evento já registrado.")
+    react.add_argument("--event-id", required=True)
 
     return parser
 
@@ -559,6 +633,140 @@ def _memory(args: argparse.Namespace, settings: Settings) -> int:
     return _memory_reindex(settings)
 
 
+def _print_turn(turn: AgentTurn) -> None:
+    decision = turn.decision
+    print(f"decision    {decision.type.value}")
+    print(f"reason      {decision.reason}")
+    if decision.message is not None:
+        print(f"message     {decision.message}")
+    if decision.memory is not None:
+        proposal = decision.memory
+        print(f"memory      {proposal.type.value}: {proposal.content}")
+        # Proposta, não escrita: nada é gravado nesta fase.
+        print("            (proposta; gravação de memória entra numa fase futura)")
+    if decision.action is not None:
+        print(f"action      {decision.action.skill} {json.dumps(dict(decision.action.parameters))}")
+        print("            proposta não executada: requer Policy Engine (Fase 5)")
+    if turn.importance is not None:
+        assessment = turn.importance
+        print(
+            f"importance  {assessment.total:.3f} "
+            f"(urgency={assessment.urgency:.2f} relevance={assessment.personal_relevance:.2f} "
+            f"temporal={assessment.temporal_relevance:.2f} "
+            f"interruption={assessment.interruption_cost:.2f})"
+        )
+        print(f"reasons     {', '.join(assessment.reasons) or ABSENT}")
+    print(f"llm         {'consultado' if turn.consulted_llm else 'não consultado'}")
+    print(f"memories    {len(turn.used_memory_ids)}")
+    print(f"correlation {decision.correlation_id}")
+
+
+def _prepared_context(
+    store: SqliteEventStore, snapshots: SqliteContextSnapshotRepository
+) -> ContextEngine:
+    """A projeção é derivada: um processo novo a reconstrói antes de raciocinar
+    sobre ela. Quem reconstrói é o composition root — o Agent Runtime recebe
+    contexto pronto e nunca conhece o Event Store (contracts §3.4)."""
+    engine = build_context_engine(snapshots)
+    engine.rebuild_from(store)
+    engine.refresh()
+    return engine
+
+
+def _recent_events(store: SqliteEventStore) -> tuple[EventSummary, ...]:
+    return tuple(
+        EventSummary.from_recorded(recorded)
+        for recorded in store.read_latest(limit=DEFAULT_RECENT_EVENTS)
+    )
+
+
+def _agent_ask(args: argparse.Namespace, settings: Settings) -> int:
+    conversation_id = args.conversation_id or new_event_id()
+    with (
+        SqliteEventStore.open(event_store_path(settings)) as store,
+        SqliteContextSnapshotRepository.open(context_store_path(settings)) as snapshots,
+        SqliteMemoryRepository.open(memory_store_path(settings)) as memories,
+    ):
+        runtime = build_agent_runtime(
+            settings, context=_prepared_context(store, snapshots), memories=memories
+        )
+        turn = runtime.handle(
+            UserMessage(text=args.text, at=datetime.now(UTC), conversation_id=conversation_id),
+            recent_events=_recent_events(store),
+        )
+    _print_turn(turn)
+    return EXIT_OK
+
+
+def _agent_chat(args: argparse.Namespace, settings: Settings) -> int:
+    """Multi-turno lendo a entrada padrão, uma mensagem por linha.
+
+    Sem `input()` interativo de propósito: assim a conversa funciona tanto no
+    terminal quanto com entrada redirecionada, e o teste alimenta stdin em vez
+    de simular um terminal.
+    """
+    conversation = Conversation(conversation_id=args.conversation_id or new_event_id())
+
+    with (
+        SqliteEventStore.open(event_store_path(settings)) as store,
+        SqliteContextSnapshotRepository.open(context_store_path(settings)) as snapshots,
+        SqliteMemoryRepository.open(memory_store_path(settings)) as memories,
+    ):
+        runtime = build_agent_runtime(
+            settings, context=_prepared_context(store, snapshots), memories=memories
+        )
+        recent = _recent_events(store)
+
+        for line in sys.stdin:
+            text = line.strip()
+            if not text:
+                continue
+            now = datetime.now(UTC)
+            turn = runtime.handle(
+                UserMessage(text=text, at=now, conversation_id=conversation.conversation_id),
+                conversation=conversation,
+                recent_events=recent,
+            )
+            _print_turn(turn)
+            print()
+            conversation = conversation.append(ConversationTurn(role=Role.USER, text=text, at=now))
+            if turn.decision.message is not None:
+                conversation = conversation.append(
+                    ConversationTurn(role=Role.ASSISTANT, text=turn.decision.message, at=now)
+                )
+    return EXIT_OK
+
+
+def _agent_react(args: argparse.Namespace, settings: Settings) -> int:
+    with (
+        SqliteEventStore.open(event_store_path(settings)) as store,
+        SqliteContextSnapshotRepository.open(context_store_path(settings)) as snapshots,
+        SqliteMemoryRepository.open(memory_store_path(settings)) as memories,
+    ):
+        recorded = store.get(args.event_id)
+        if recorded is None:
+            raise InvalidEventError(f"evento {args.event_id} não encontrado")
+        runtime = build_agent_runtime(
+            settings, context=_prepared_context(store, snapshots), memories=memories
+        )
+        turn = runtime.handle(
+            EventTrigger.from_recorded(recorded), recent_events=_recent_events(store)
+        )
+    _print_turn(turn)
+    return EXIT_OK
+
+
+def _agent(args: argparse.Namespace, settings: Settings) -> int:
+    if args.agent_command is None:
+        args.agent_parser.print_help()
+        return EXIT_OK
+    if args.agent_command == "ask":
+        return _agent_ask(args, settings)
+    if args.agent_command == "chat":
+        return _agent_chat(args, settings)
+    return _agent_react(args, settings)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -578,6 +786,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _context(args, settings)
         if args.command == "memory":
             return _memory(args, settings)
+        if args.command == "agent":
+            return _agent(args, settings)
 
         if args.events_command is None:
             args.events_parser.print_help()
@@ -585,10 +795,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.events_command == "emit":
             return _emit(args, settings)
         return _list(args, settings)
-    except (InvalidEventError, InvalidContextError, InvalidMemoryError) as error:
+    except (
+        InvalidEventError,
+        InvalidContextError,
+        InvalidMemoryError,
+        InvalidDecisionError,
+        InvalidLLMRequestError,
+        PromptTooLargeError,
+    ) as error:
         print(f"erro: {error}", file=sys.stderr)
         return EXIT_INVALID_INPUT
-    except (EventStoreError, ContextSnapshotError, MemoryRepositoryError) as error:
+    except (
+        EventStoreError,
+        ContextSnapshotError,
+        MemoryRepositoryError,
+        LLMProviderError,
+    ) as error:
         print(f"erro: {error}", file=sys.stderr)
         return EXIT_INFRASTRUCTURE_ERROR
 

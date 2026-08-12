@@ -74,3 +74,5 @@ original fazia sentido no momento em que foi tomada.
 | [0008](0008-synchronous-in-process-event-bus.md) | Event Bus síncrono em processo | Accepted |
 | [0009](0009-sqlite-memory-storage.md) | SQLite como armazenamento do Memory System | Accepted |
 | [0010](0010-immutable-memory-and-supersession.md) | Memória imutável, com supersessão em vez de sobrescrita | Accepted |
+| [0011](0011-gemini-rest-llm-adapter.md) | Gemini em nuvem, via REST da stdlib, como primeiro `LLMProvider` | Accepted |
+| [0012](0012-core-owned-structured-decisions.md) | `Decision` como JSON validado no Core, sem tool-calling do vendor | Accepted |

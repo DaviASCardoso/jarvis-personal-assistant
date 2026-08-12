@@ -22,6 +22,9 @@ htmlcov/
 # Dados locais gerados em runtime
 data/
 
+# Material de apresentação (não faz parte do código nem do desenvolvimento)
+JARVIS_Arquitetura.html
+
 # Editores / SO
 .vscode/
 .idea/

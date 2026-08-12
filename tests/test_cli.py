@@ -1,11 +1,13 @@
+import io
 import json
 import sqlite3
 from pathlib import Path
 
 import pytest
 
-from jarvis import __version__
+from jarvis import __version__, cli
 from jarvis.cli import main
+from tests.agent_doubles import StubLLMProvider, decision_json
 
 
 @pytest.fixture(autouse=True)
@@ -495,6 +497,126 @@ class TestMemory:
 
         assert main(["memory", "list", "--subject", "preference.coffee"]) == 0
         assert "prefere café" in capsys.readouterr().out
+
+
+class TestAgent:
+    """O composition root do agente.
+
+    O provider é substituído por um stub em todos os testes: nenhum deles pode
+    depender de credencial, rede ou quota. O caminho sem credencial é testado
+    justamente **sem** a substituição.
+    """
+
+    @pytest.fixture(autouse=True)
+    def stub_provider(self, monkeypatch: pytest.MonkeyPatch) -> StubLLMProvider:
+        provider = StubLLMProvider([decision_json(type="notify", message="tudo em ordem")])
+        monkeypatch.setenv("JARVIS_GEMINI_API_KEY", "chave-de-teste")
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+        return provider
+
+    def test_without_action_prints_its_help(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["agent"]) == 0
+        assert "usage: jarvis agent" in capsys.readouterr().out
+
+    def test_ask_prints_the_decision(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["agent", "ask", "o que houve?"]) == 0
+
+        out = capsys.readouterr().out
+        assert "decision    notify" in out
+        assert "tudo em ordem" in out
+
+    def test_ask_correlates_by_the_given_conversation(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        main(["agent", "ask", "oi", "--conversation-id", "conv-42"])
+
+        assert "correlation conv-42" in capsys.readouterr().out
+
+    def test_ask_reaches_the_model_with_context_and_capabilities(
+        self, stub_provider: StubLLMProvider
+    ) -> None:
+        main(["agent", "ask", "oi"])
+
+        envelope = json.loads(stub_provider.requests[0].messages[0].content)
+        assert envelope["trigger"]["text"] == "oi"
+        assert envelope["constraints"]["capabilities_available"] is False
+
+    def test_an_action_proposal_is_printed_as_unexecuted(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A saída precisa dizer o que aconteceu: nada."""
+        provider = StubLLMProvider(
+            [decision_json(type="act", message=None, action={"skill": "send_notification"})]
+        )
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+
+        assert main(["agent", "ask", "me avise"]) == 0
+        assert "não executada" in capsys.readouterr().out
+
+    def test_chat_keeps_the_conversation_across_lines(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        provider = StubLLMProvider(
+            [
+                decision_json(type="notify", message="primeira"),
+                decision_json(type="notify", message="segunda"),
+            ]
+        )
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+        monkeypatch.setattr("sys.stdin", io.StringIO("oi\n\ntudo bem?\n"))
+
+        assert main(["agent", "chat", "--conversation-id", "c-1"]) == 0
+
+        out = capsys.readouterr().out
+        assert "primeira" in out
+        assert "segunda" in out
+        # A linha em branco não vira turno.
+        assert provider.calls == 2
+        second = json.loads(provider.requests[1].messages[0].content)
+        assert [turn["text"] for turn in second["conversation"]] == ["oi", "primeira"]
+
+    def test_react_evaluates_a_recorded_event(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        provider = StubLLMProvider([decision_json(type="ignore", message=None, reason="rotina")])
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+        emit("--key", "para-reagir")
+        event_id = capsys.readouterr().out.splitlines()[0].split()[1]
+
+        assert main(["agent", "react", "--event-id", event_id]) == 0
+
+        out = capsys.readouterr().out
+        assert "decision    ignore" in out
+        assert "importance" in out, "o caminho proativo sempre reporta a triagem"
+
+    def test_react_on_an_unknown_event_is_an_input_error(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main(["agent", "react", "--event-id", "nao-existe"]) == 2
+        assert "não encontrado" in capsys.readouterr().err
+
+
+def test_the_agent_without_a_credential_fails_cleanly(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Sem chave, `agent ask` falha explicando o quê — e todo o resto do sistema
+    continua funcionando offline. Este é o único teste de agente que **não**
+    substitui o provider."""
+    monkeypatch.delenv("JARVIS_GEMINI_API_KEY", raising=False)
+
+    assert main(["agent", "ask", "oi"]) == 1
+    assert "JARVIS_GEMINI_API_KEY" in capsys.readouterr().err
+
+
+def test_the_rest_of_the_cli_works_without_a_credential(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("JARVIS_GEMINI_API_KEY", raising=False)
+
+    assert emit() == 0
+    capsys.readouterr()
+    assert main(["context", "show"]) == 0
+    assert main(["memory", "list"]) == 0
 
 
 def test_payload_is_not_printed_by_list(capsys: pytest.CaptureFixture[str]) -> None:
