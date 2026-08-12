@@ -17,7 +17,7 @@ O sistema será construído em oito fases:
 - [x] **Fase 1 — Event System**
 - [x] **Fase 2 — Context Engine**
 - [x] **Fase 3 — Memory System**
-- [ ] **Fase 4 — Agent Runtime**
+- [x] **Fase 4 — Agent Runtime**
 - [ ] **Fase 5 — Skills + MCP**
 - [ ] **Fase 6 — Voice**
 - [ ] **Fase 7 — Proactivity + Autonomy**
@@ -596,13 +596,13 @@ feat: complete persistent memory system
 
 ## 4.1 — LLM Provider
 
-- [ ] Criar interface `LLMProvider`
-- [ ] Criar abstração de mensagens
-- [ ] Criar abstração de respostas
-- [ ] Implementar provider inicial
-- [ ] Configurar credenciais
-- [ ] Implementar tratamento de erros
-- [ ] Criar testes
+- [x] Criar interface `LLMProvider`
+- [x] Criar abstração de mensagens
+- [x] Criar abstração de respostas
+- [x] Implementar provider inicial
+- [x] Configurar credenciais
+- [x] Implementar tratamento de erros
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -614,13 +614,17 @@ feat: implement llm provider abstraction
 
 ## 4.2 — Agent Runtime
 
-- [ ] Criar `AgentRuntime`
-- [ ] Definir entradas
-- [ ] Definir saídas
-- [ ] Integrar contexto
-- [ ] Integrar memória
-- [ ] Integrar eventos
-- [ ] Integrar LLM
+- [x] Criar `AgentRuntime`
+- [x] Definir entradas — `UserMessage` (conversa) e `EventTrigger` (proativo)
+- [x] Definir saídas — `AgentTurn`, contendo a `Decision` e o rastro do turno
+- [x] Integrar contexto — leitura apenas; quem reconstrói a projeção é o
+      composition root, não o agente
+- [x] Integrar memória — retrieval apenas. `record_access`/`reinforce` ficam
+      para a fase em que a decisão vira ação (`docs/phase-3-plan.md §12.4`)
+- [x] Integrar eventos — **direção única: entrada.** O agente consome
+      `RecordedEvent` como gatilho e **não** emite eventos; registrar decisões
+      de forma consultável é a subfase 7.4. Mesmo critério da 3.7
+- [x] Integrar LLM
 
 **Commit esperado:**
 
@@ -632,14 +636,20 @@ feat: implement agent runtime
 
 ## 4.3 — Structured Decisions
 
-- [ ] Definir schema de decisão
-- [ ] Implementar `ignore`
-- [ ] Implementar `remember`
-- [ ] Implementar `notify`
-- [ ] Implementar `ask`
-- [ ] Implementar `act`
-- [ ] Implementar `act_and_notify`
-- [ ] Implementar validação
+- [x] Definir schema de decisão
+- [x] Implementar `ignore`
+- [x] Implementar `remember`
+- [x] Implementar `notify` — é também o tipo de uma **resposta de conversa**;
+      o que distingue um alerta de uma réplica é o gatilho, não o tipo
+- [x] Implementar `ask`
+- [x] Implementar `act`
+- [x] Implementar `act_and_notify`
+- [x] Implementar validação
+
+> "Implementar" aqui é a **variante validada + o parsing**, não a execução:
+> `act` volta como proposta inerte (não há Policy Engine nem Skills até a
+> Fase 5), `remember` não grava e `notify`/`ask` não entregam nada (o
+> Notification System é a 7.3). Ver `docs/phase-4-plan.md §3` (V-3).
 
 **Commit esperado:**
 
@@ -651,13 +661,15 @@ feat: implement structured agent decisions
 
 ## 4.4 — Importance Engine
 
-- [ ] Definir importance
-- [ ] Definir urgency
-- [ ] Definir personal relevance
-- [ ] Definir temporal relevance
-- [ ] Definir interruption cost
-- [ ] Implementar avaliação
-- [ ] Criar testes
+- [x] Definir importance — combinação ponderada das quatro grandezas abaixo
+- [x] Definir urgency
+- [x] Definir personal relevance — reúsa o `RelevanceScore` da Fase 3
+- [x] Definir temporal relevance
+- [x] Definir interruption cost — entra **subtraindo**
+- [x] Implementar avaliação — **determinística, sem chamada de LLM**
+      (`PHASE-4.md §14`): um filtro que chama o modelo não filtra chamadas ao
+      modelo. Não há "AI importance model" separado
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -669,15 +681,15 @@ feat: implement importance engine
 
 ## 4.5 — Prompt Assembly
 
-- [ ] Criar `PromptBuilder`
-- [ ] Definir system instructions
-- [ ] Integrar contexto
-- [ ] Integrar memória
-- [ ] Integrar evento
-- [ ] Integrar capacidades
-- [ ] Integrar conversa
-- [ ] Controlar tamanho do contexto
-- [ ] Criar testes
+- [x] Criar `PromptBuilder`
+- [x] Definir system instructions
+- [x] Integrar contexto
+- [x] Integrar memória
+- [x] Integrar evento
+- [x] Integrar capacidades
+- [x] Integrar conversa
+- [x] Controlar tamanho do contexto
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -701,12 +713,16 @@ observe
 → observe result
 ```
 
-- [ ] Implementar ciclo
-- [ ] Implementar state handling
-- [ ] Implementar erros
-- [ ] Implementar timeout
-- [ ] Implementar logging
-- [ ] Criar testes end-to-end
+- [x] Implementar ciclo — até `decide`. **`execute` e `observe result` não
+      existem nesta fase**: quem executa é Policy → Skill → Tool Router → MCP
+      (ADR-0003), e nada disso tem código antes da Fase 5. O ciclo se fecha
+      quando esses componentes existirem
+- [x] Implementar state handling — `Conversation` imutável, em memória;
+      persistir sessão é 6.4
+- [x] Implementar erros — retry de transporte separado do reparo de conteúdo
+- [x] Implementar timeout
+- [x] Implementar logging
+- [x] Criar testes end-to-end
 
 **Commit esperado:**
 
@@ -718,11 +734,15 @@ feat: implement agent event loop
 
 ## 4.7 — Agent Integration
 
-- [ ] Integrar Events
-- [ ] Integrar Context
-- [ ] Integrar Memory
-- [ ] Integrar LLM
-- [ ] Testar evento → contexto → memória → decisão
+- [x] Integrar Events — entrada apenas (ver 4.2); o agente **não** é inscrito
+      no bus, porque isso tornaria todo `events emit` uma chamada paga. A
+      subscrição pertence ao Trigger Engine (7.1)
+- [x] Integrar Context
+- [x] Integrar Memory
+- [x] Integrar LLM — Gemini em nuvem, tier gratuito
+      ([ADR-0011](docs/adr/0011-gemini-rest-llm-adapter.md)); `LLMProvider`
+      segue vendor-agnóstico
+- [x] Testar evento → contexto → memória → decisão
 
 **Commit esperado:**
 
@@ -732,7 +752,7 @@ feat: complete autonomous reasoning core
 
 ### Agent Runtime completo
 
-- [ ] **FASE 4 CONCLUÍDA**
+- [x] **FASE 4 CONCLUÍDA**
 
 ---
 
@@ -1462,12 +1482,12 @@ O sistema consegue lembrar.
 **Semana 9**
 
 ```text
-[ ] LLM
-[ ] Agent Runtime
-[ ] Decisions
-[ ] Importance
-[ ] Prompt Assembly
-[ ] Agent Loop
+[x] LLM — Gemini em nuvem, ver ADR-0011
+[x] Agent Runtime
+[x] Decisions
+[x] Importance
+[x] Prompt Assembly
+[x] Agent Loop — até `decide`; `execute` depende da Fase 5
 ```
 
 O sistema consegue raciocinar sobre acontecimentos.
@@ -1775,13 +1795,13 @@ TTS
 | 2026-08-10 | 3.5 | ✅ | `feat: implement memory consolidation` |
 | 2026-08-10 | 3.6 | ✅ | `feat: implement memory lifecycle` |
 | 2026-08-10 | 3.7 | ✅ | `feat: complete persistent memory system` |
-| — | 4.1 | ⬜ | — |
-| — | 4.2 | ⬜ | — |
-| — | 4.3 | ⬜ | — |
-| — | 4.4 | ⬜ | — |
-| — | 4.5 | ⬜ | — |
-| — | 4.6 | ⬜ | — |
-| — | 4.7 | ⬜ | — |
+| 2026-08-12 | 4.1 | ✅ | `feat: implement llm provider abstraction` |
+| 2026-08-12 | 4.2 | ✅ | `feat: implement agent runtime` |
+| 2026-08-12 | 4.3 | ✅ | `feat: implement structured agent decisions` |
+| 2026-08-12 | 4.4 | ✅ | `feat: implement importance engine` |
+| 2026-08-12 | 4.5 | ✅ | `feat: implement prompt assembly` |
+| 2026-08-12 | 4.6 | ✅ | `feat: implement agent event loop` |
+| 2026-08-12 | 4.7 | ✅ | `feat: complete autonomous reasoning core` |
 | — | 5.1 | ⬜ | — |
 | — | 5.2 | ⬜ | — |
 | — | 5.3 | ⬜ | — |
