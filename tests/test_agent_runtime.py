@@ -10,9 +10,19 @@ propriedades que a fase inteira existe para garantir: **nada é executado** e
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
+import pytest
 
 from jarvis.agent.decision import DecisionType
+from jarvis.agent.errors import (
+    InvalidDecisionError,
+    LLMAuthenticationError,
+    LLMInvalidResponseError,
+    LLMProviderError,
+    LLMRateLimitError,
+    LLMTimeoutError,
+)
 from jarvis.agent.input import AgentInput, EventSummary
+from jarvis.agent.messages import LLMResponse, StopReason
 from jarvis.agent.ports import LLMProvider
 from jarvis.agent.prompt import Capability, PromptBuilder
 from jarvis.agent.runtime import AgentRuntime, AgentTurn, GenerationDefaults, LLMRetryPolicy
@@ -23,6 +33,8 @@ from jarvis.memory.memory import MemoryOrigin, MemoryType, Provenance
 from jarvis.memory.ports import MemoryCriteria
 from tests.agent_doubles import (
     NOON,
+    STUB_MODEL,
+    FailingLLMProvider,
     StubLLMProvider,
     decision_json,
     make_context,
@@ -282,6 +294,97 @@ def test_the_silent_path_also_carries_correlation() -> None:
     )
 
     assert (turn.decision.correlation_id, turn.decision.causation_id) == ("corr-9", "evt-9")
+
+
+# --- resposta inválida e reparo ----------------------------------------------
+
+
+def test_a_malformed_response_triggers_one_repair_attempt() -> None:
+    llm = StubLLMProvider(["desculpe, não entendi", decision_json(type="ignore", message=None)])
+
+    turn = handle(build_runtime(llm))
+
+    assert llm.calls == 2
+    assert turn.decision.type is DecisionType.IGNORE
+    assert "objeto JSON" in llm.requests[1].messages[-1].content
+
+
+def test_a_second_malformed_response_gives_up() -> None:
+    llm = StubLLMProvider(["lixo", "mais lixo"])
+
+    with pytest.raises(InvalidDecisionError):
+        handle(build_runtime(llm))
+
+    assert llm.calls == 2
+
+
+def test_repair_can_be_disabled() -> None:
+    llm = StubLLMProvider(["lixo"])
+
+    with pytest.raises(InvalidDecisionError):
+        handle(build_runtime(llm, max_repair_attempts=0))
+
+    assert llm.calls == 1
+
+
+def test_a_blocked_response_is_an_invalid_response() -> None:
+    blocked = LLMResponse(text="", stop_reason=StopReason.BLOCKED, model=STUB_MODEL)
+
+    with pytest.raises(LLMInvalidResponseError):
+        handle(build_runtime(StubLLMProvider([blocked])))
+
+
+# --- falhas de provider ------------------------------------------------------
+
+
+def test_a_transient_failure_is_retried_and_then_succeeds() -> None:
+    llm = FailingLLMProvider(LLMProviderError("503"), fail_times=1)
+    sleep = RecordingSleep()
+
+    turn = handle(build_runtime(llm, retry=LLMRetryPolicy(max_attempts=2), sleep=sleep))
+
+    assert llm.calls == 2
+    assert sleep.delays == [0.5]
+    assert turn.decision.type is DecisionType.NOTIFY
+
+
+def test_a_timeout_exhausts_the_attempts_and_propagates() -> None:
+    llm = FailingLLMProvider(LLMTimeoutError("estourou"))
+
+    with pytest.raises(LLMTimeoutError):
+        handle(build_runtime(llm, retry=LLMRetryPolicy(max_attempts=2)))
+
+    assert llm.calls == 2
+
+
+def test_a_permanent_failure_is_not_retried() -> None:
+    """Insistir numa credencial inválida gasta quota sem chance de sucesso."""
+    llm = FailingLLMProvider(LLMAuthenticationError("credencial recusada"))
+
+    with pytest.raises(LLMAuthenticationError):
+        handle(build_runtime(llm, retry=LLMRetryPolicy(max_attempts=3)))
+
+    assert llm.calls == 1
+
+
+def test_a_rate_limit_respects_the_wait_the_provider_asked_for() -> None:
+    llm = FailingLLMProvider(LLMRateLimitError("429", retry_after=4.0), fail_times=1)
+    sleep = RecordingSleep()
+
+    handle(build_runtime(llm, retry=LLMRetryPolicy(max_attempts=2), sleep=sleep))
+
+    assert sleep.delays == [4.0]
+
+
+def test_backoff_grows_between_attempts() -> None:
+    policy = LLMRetryPolicy(max_attempts=4, base_delay=0.5, backoff=2.0)
+
+    assert [policy.delay_before(attempt) for attempt in (1, 2, 3)] == [0.5, 1.0, 2.0]
+
+
+def test_a_retry_policy_needs_at_least_one_attempt() -> None:
+    with pytest.raises(ValueError, match="max_attempts"):
+        LLMRetryPolicy(max_attempts=0)
 
 
 # --- observabilidade ---------------------------------------------------------
