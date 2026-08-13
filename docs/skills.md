@@ -1,96 +1,205 @@
 # Skills
 
-> Documentação conceitual do Skill Framework, previsto para a **Fase 5** do
-> [roadmap](../ROADMAP.md). Criada na subfase **0.5** como explicação de um
-> contrato já aprovado na 0.3 — **não implementa** nenhuma Skill real. O
-> contrato normativo completo está em
-> [`architecture-contracts.md §8`](architecture-contracts.md#8-skill-contract)
-> e em [ADR-0005](adr/0005-skill-tool-mcp-distinction.md); este documento
-> explica o *porquê* e o *como se relaciona*, sem repetir a tabela de
-> campos. Para MCP e Tool Router especificamente, ver [mcp.md](mcp.md).
+> **Documentação de implementação**: descreve o Skill Framework que existe em
+> `src/jarvis/skills/` desde a Fase 5. Até a Fase 4 este documento era
+> conceitual; agora descreve código real.
+>
+> Contrato normativo: [`architecture-contracts.md §8`](architecture-contracts.md#8-skill-contract),
+> [ADR-0005](adr/0005-skill-tool-mcp-distinction.md) e
+> [ADR-0016](adr/0016-action-execution-orchestrator.md). Para Tools, Tool Router
+> e MCP, ver [mcp.md](mcp.md); para o Policy Engine, [security.md](security.md).
+
+## O que existe
+
+```text
+src/jarvis/skills/
+├── skill.py      # SkillDescriptor, SkillInvocation, SkillOutput, SkillHandler, Skill
+├── registry.py   # SkillRegistry
+├── errors.py     # SkillError, SkillInputError, SkillExecutionError, UnknownSkillError
+└── builtin/      # system.status, file.read, file.list, file.write
+```
+
+Este pacote **não** importa `jarvis.policy.engine`, `jarvis.agent` nem
+`jarvis.tools.adapters`. Ele toca `jarvis.policy.vocabulary` (o vocabulário de
+risco) e `jarvis.tools` (o contrato de Tool) — e nada além disso. Um teste
+arquitetural verifica cada uma dessas ausências.
 
 ## Skill ≠ Tool: por que a distinção existe
 
-É tentador tratar "Skill" como só um sinônimo de "função que chama uma
-tool" — mas isso colapsaria justamente o lugar onde risco, permissão e
-política de confirmação deveriam viver (ver
-[ADR-0003](adr/0003-policy-engine-safety-authority.md)) dentro de uma
-simples chamada de função, sem espaço semântico para essas propriedades.
-Por isso o Jarvis define quatro conceitos distintos, cada um com uma
-responsabilidade própria (ver [ADR-0005](adr/0005-skill-tool-mcp-distinction.md)):
-
 | Conceito | O que é | Onde mora risco/permissão? |
 |---|---|---|
-| **Tool** | capacidade atômica, stateless, schema fixo de entrada/saída (ex. `send_email(to, subject, body)`). Corresponde ~1:1 a uma tool MCP. | não aqui |
-| **MCP Server** | processo externo que expõe uma ou mais Tools via protocolo MCP — detalhe de implementação de onde a Tool mora | não aqui |
-| **MCP Tool** | representação de wire-level de uma Tool, como descoberta via protocolo MCP | não aqui |
-| **Skill** | capacidade de nível mais alto que o agente decide invocar; pode compor múltiplas Tools | **aqui** |
+| **Tool** | capacidade atômica, stateless, schema fixo (`fs.write_text`). ~1:1 com uma tool MCP | não aqui |
+| **MCP Server** | processo externo que expõe Tools — detalhe de onde a Tool mora | não aqui |
+| **MCP Tool** | representação de wire-level de uma Tool | não aqui |
+| **Skill** | capacidade que o agente decide invocar; pode compor várias Tools | **aqui** |
 
-**`risk` e `confirmation_requirement` são atributos de Skill, nunca de
-Tool ou de MCP Server.** Tools são "o que pode ser feito tecnicamente";
-Skills são "o que o agente está autorizado/deveria decidir fazer, e sob
-qual condição". Uma Skill pode envolver tecnicamente só uma Tool e ainda
-assim ser o lugar certo para essas semânticas — Skill não é sinônimo de
-função.
+`ToolDescriptor` **não tem campo de risco**, e a ausência é deliberada: se
+tivesse, a primeira Tool a se declarar inofensiva teria criado um segundo lugar
+onde autorização parece morar.
 
-## A cadeia Agent → Skill → Tool Router → MCP
+## O descritor
 
-```mermaid
-flowchart LR
-    A["Agent Runtime\n(Decision.act, proposta)"] --> P["Policy Engine\n(PolicyApproval)"]
-    P --> S["Skill\n(risk · permissions ·\nconfirmation_requirement)"]
-    S --> TR["Tool Router\n(roteamento · timeout ·\nnormalização de erro)"]
-    TR --> MC["MCP Client"]
-    MC --> MS["MCP Server"]
-    MS --> T["Tool\n(execução real)"]
+```python
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SkillDescriptor:
+    name: str  # slug; mesmo padrão de ActionProposal.skill
+    summary: str  # vai para o envelope do LLM
+    parameters: ParameterSchema
+    capabilities: frozenset[str]  # exigidas, ex. {"file:write"}
+    required_tools: tuple[ToolId, ...]  # o teto do ToolAccess
+    risk: RiskLevel  # none < low < medium < high < critical
+    effects: frozenset[Effect]  # read/write/destructive/physical/…
+    confirmation_requirement: ConfirmationRequirement
+    idempotency: Idempotency  # safe | unsafe
+    version: int = 1
 ```
 
-Se o contrato normativo determinar outra relação no futuro, ele prevalece
-sobre este diagrama — mas hoje esta é a cadeia definida em
-[`architecture-contracts.md §9`](architecture-contracts.md#9-tool--mcp-boundary).
-Uma Skill pode representar um workflow que compõe várias Tools (inclusive
-de MCP Servers diferentes) sob uma única política de risco/confirmação
-coerente — ela não é limitada a uma chamada 1:1.
+Duas grandezas de risco, e não uma. `RiskLevel` é escalar e ordenado ("quão
+perigoso?"); `Effect` é categórico ("perigoso *como*?"). `PHASE-5.md §32` pede
+distinguir leitura, alteração, ação destrutiva, ação física e comunicação
+externa — e um escalar não expressa isso: `start_print` e `delete_file` podem ser
+igualmente arriscados e ainda merecer políticas diferentes.
 
-## O contrato de Skill
+`RiskLevel` compara por `at_least()`, nunca por `>=`: `StrEnum` compara como
+texto, e alfabeticamente `critical < low`.
 
-Campos: `name`/`skill_id`, `input schema`, `output schema`, `capabilities`
-(tags declarativas, ex. `email:send`), `permissions` (escopos necessários),
-`risk`, `confirmation_requirement`, `execution_context` (dados recebidos
-**explicitamente como parâmetro** — a Skill nunca busca Context/Memory por
-conta própria), `errors` (taxonomia própria — ver
-[`architecture-contracts.md §13`](architecture-contracts.md#13-error-contract)).
+### `risk` não concede autorização
 
-Entrada obrigatória: parâmetros já validados contra o `input schema` da
-Skill, entregues **somente após** aprovação do Policy Engine. Saída
-obrigatória: `SkillResult` (sucesso) ou `SkillError` (falha).
+Regra sem exceção, herdada do [ADR-0003](adr/0003-policy-engine-safety-authority.md):
+`risk`, `effects` e `confirmation_requirement` são **autodeclarações**. Elas são
+insumo para o Policy Engine, que pode divergir — uma Skill que se declare
+inofensiva e esteja na denylist continua negada.
 
-## `risk` e `confirmation_requirement` não concedem autorização
+## O que um handler recebe (e o que não recebe)
 
-Esta é uma regra explícita, sem exceção, herdada de
-[ADR-0003](adr/0003-policy-engine-safety-authority.md) e detalhada em
-[security.md](security.md): uma Skill **declara** seu risco e sob qual
-condição acredita que deveria exigir confirmação — mas essa autodeclaração
-nunca autoriza a própria Skill a executar. A decisão efetiva de `allow` /
-`deny` / `require_confirmation` pertence exclusivamente ao Policy Engine,
-que pode inclusive divergir da autodeclaração (ex. aplicar uma denylist
-estática mais restritiva do que o risco que a Skill afirma ter). Uma Skill
-nunca executa sua parte de risco sem um `PolicyApproval` correspondente.
+```python
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SkillInvocation:
+    execution_id: str
+    correlation_id: str
+    parameters: Mapping[str, JsonValue]  # já validados
+    tools: ToolAccess  # escopado, só chega após approval
+    now: datetime
+```
 
-## O que uma Skill pode e não pode conhecer
+Três ausências valem mais que qualquer comentário sobre segurança:
 
-Permitido: Tool Router port, seu próprio schema de entrada/saída, seus
-próprios metadados de risco. Proibido: internals do Agent Runtime, LLM,
-internals de Memory/Context (os dados necessários chegam como parâmetro
-explícito — a Skill não os busca sozinha), internals do Policy Engine. Ver
-a tabela completa em
-[`architecture-contracts.md §3.6`](architecture-contracts.md#36-skills).
+- **sem `PolicyEngine`** — não há como se autorizar;
+- **sem `ToolRouter`** — o que chega é `ToolAccess`, limitado às tools declaradas
+  e construído só depois de uma `PolicyApproval` consumida ([ADR-0016](adr/0016-action-execution-orchestrator.md));
+- **sem Context e sem Memory** — `architecture-contracts.md §3.6` manda que
+  cheguem como parâmetro explícito; a Skill nunca os busca.
+
+`SkillOutput.summary` é texto **seguro para o usuário**: uma frase sobre o que
+aconteceu, não o conteúdo do que foi lido. `SkillOutput.data` carrega o resultado
+estruturado e não vai para log nem para evento.
+
+## Validação de parâmetros
+
+`PHASE-5.md §27`: "o LLM não é confiável como validador; validação deve ocorrer
+em código". O validador é `ParameterSchema` (em `jarvis/tools/schema.py`,
+compartilhado com Tools) e rejeita campo desconhecido por padrão, tipo errado,
+obrigatório ausente, valor fora de faixa e string fora do padrão.
+
+Há **três** barreiras independentes, e a redundância é de propósito:
+
+| barreira | onde | o que garante |
+|---|---|---|
+| schema da Skill | executor, antes da política | o formato é o declarado |
+| regra de negócio | handler | ex. "o caminho precisa ser relativo" |
+| schema da Tool | Tool Router, antes do dispatch | o contrato técnico do backend |
+
+Uma delas afrouxada por engano não abre o caminho inteiro.
+
+## O registry
+
+Registro **explícito**, feito pelo composition root (`register_builtin_skills`).
+Não há varredura de módulos nem entry points: descobrir capacidades importando
+código arbitrário é superfície de ataque e efeito colateral em import, e nada
+disso se paga com quatro Skills.
+
+O registry serve às duas pontas da mesma garantia (`PHASE-5.md §26`): decide o
+que o modelo **vê** (a lista de capacidades no envelope) e o que o executor
+**aceita** (um nome fora daqui vira negação auditada). Um nome inventado não vira
+execução em nenhum dos dois caminhos.
+
+O registry **não** devolve tipos do Agent Runtime. Quem traduz `SkillDescriptor`
+em `Capability` é `cli.capabilities_from()` — é o que mantém `jarvis.skills` sem
+dependência de `jarvis.agent`.
+
+O padrão de nome é duplicado entre `skills/skill.py` e `agent/decision.py`
+(os pacotes não podem se importar). `tests/test_skill_registry.py` amarra os
+dois: o que o agente consegue propor, o registry consegue registrar.
+
+## O catálogo inicial
+
+| Skill | Tool | capacidade | risco | efeitos | confirmação | idempotência |
+|---|---|---|---|---|---|---|
+| `system.status` | `local:system.info` | `system:read` | `none` | read | never | safe |
+| `file.list` | `local:fs.list_dir` | `file:read` | `low` | read | never | safe |
+| `file.read` | `local:fs.read_text` | `file:read` | `low` | read | never | safe |
+| `file.write` | `local:fs.write_text` | `file:write` | `medium` | write | conditional | unsafe |
+
+Quatro Skills locais — as únicas que dão execução real de ponta a ponta **sem**
+integração externa. Elas cobrem os dois lados da política: leitura passa direto;
+escrita pede confirmação quando a ação foi disparada por um evento em vez de
+pedida pelo usuário (`conditional`).
+
+Nenhuma Skill genérica do tipo `execute_anything` (`PHASE-5.md §33`): cada uma
+declara exatamente uma ferramenta, e o `ToolAccess` recusa o resto.
+
+**Calendar e Email não existem** — exigiriam OAuth e integração externa,
+explicitamente fora do escopo da Fase 5. A arquitetura as suporta: um MCP Server
+de Gmail ou Calendar registrado em `mcp.json` expõe tools novas sem uma linha de
+código no Core. Ver `docs/phase-5-plan.md §33` (V-1).
+
+## Ciclo de execução
+
+```text
+lookup → validação de schema → política → aprovação consumida
+       → ToolAccess recortado → handler → tools → auditoria → outcome
+```
+
+Cada seta é uma barreira, e cada barreira tem um teste em
+`tests/test_action_security.py`. Quem percorre a cadeia é o `ActionExecutor`
+(`jarvis/execution/`), nunca a Skill nem o agente.
+
+## Erros
+
+`SkillError` (domínio) tem duas subclasses úteis: `SkillInputError` para regra de
+negócio violada e `SkillExecutionError` para "tentei e não consegui". Falha de
+infraestrutura sobe como `ToolError` do router e **não** é achatada — a diferença
+entre "o pedido está errado" e "o mundo lá fora falhou" é o que o Agent Runtime
+precisa para decidir o que dizer ao usuário.
+
+Nenhuma mensagem de erro carrega parâmetro, conteúdo de arquivo ou resultado de
+tool (`tests/test_action_privacy.py`).
+
+## Como acrescentar uma Skill
+
+1. Escreva o handler em `skills/builtin/` (ou num módulo próprio): Core puro,
+   sem `pathlib`, compondo chamadas via `invocation.tools`.
+2. Declare o `SkillDescriptor` — inclusive `required_tools`, que vira o teto do
+   `ToolAccess`.
+3. Registre em `register_builtin_skills`.
+4. Conceda a capacidade em `JARVIS_POLICY_GRANTED_CAPABILITIES`. Sem isso, a
+   política nega — o default é restritivo de propósito.
+
+Se a tool declarada não existir no `ToolRegistry`, o Policy Engine nega com
+`required_tool_unavailable` **antes** de executar, em vez de a Skill falhar no
+meio com metade dos efeitos já produzidos.
+
+## Comandos de CLI
+
+```bash
+jarvis skills list       # nome, risco, efeitos, capacidades, tools e schema
+```
 
 ## Documentos relacionados
 
-- Contrato normativo completo: [architecture-contracts.md §8](architecture-contracts.md#8-skill-contract)
+- Tools, Tool Router e MCP: [mcp.md](mcp.md)
+- Policy Engine e confirmação: [security.md](security.md)
+- Contrato normativo: [architecture-contracts.md §8](architecture-contracts.md#8-skill-contract)
 - Distinção Skill/Tool/MCP: [ADR-0005](adr/0005-skill-tool-mcp-distinction.md)
-- Autoridade de autorização: [ADR-0003](adr/0003-policy-engine-safety-authority.md) e [security.md](security.md)
-- Protocolo MCP e Tool Router: [mcp.md](mcp.md)
-- Regras para criação de Skills em sessões futuras: [CLAUDE.md §7](../CLAUDE.md)
-- Visão geral: [architecture.md](architecture.md)
+- Orquestrador e `ToolAccess`: [ADR-0016](adr/0016-action-execution-orchestrator.md)
+- Plano da fase: [phase-5-plan.md](phase-5-plan.md)

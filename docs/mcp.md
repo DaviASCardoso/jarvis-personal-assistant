@@ -1,91 +1,256 @@
-# MCP (Model Context Protocol)
+# Tools, Tool Router e MCP
 
-> Documentação conceitual do MCP Client e do Tool Router, previstos para a
-> **Fase 5** do [roadmap](../ROADMAP.md). Criada na subfase **0.5** como
-> explicação de um contrato já aprovado na 0.3 — **não implementa** o MCP
-> Client nem conecta nenhum servidor MCP real. O contrato normativo
-> completo está em
-> [`architecture-contracts.md §9`](architecture-contracts.md#9-tool--mcp-boundary)
-> e em [ADR-0005](adr/0005-skill-tool-mcp-distinction.md); este documento
-> explica o *porquê* e o *como se relaciona*, sem repetir a tabela de
-> responsabilidades. Para a distinção Skill/Tool e o contrato de Skill, ver
+> **Documentação de implementação**: descreve a camada de Tools que existe em
+> `src/jarvis/tools/` desde a Fase 5 — contrato de `Tool`, roteamento, registry,
+> backend local e cliente MCP. Até a Fase 4 este documento era conceitual.
+>
+> Contrato normativo: [`architecture-contracts.md §9`](architecture-contracts.md#9-tool--mcp-boundary),
+> [ADR-0005](adr/0005-skill-tool-mcp-distinction.md) e
+> [ADR-0015](adr/0015-stdlib-stdio-mcp-client.md). Para Skills, ver
 > [skills.md](skills.md).
 
-## Onde o MCP entra na cadeia
+## O que existe
 
 ```text
-Agent → Skill → Tool Router → MCP Client → MCP Server → Tool
+src/jarvis/tools/
+├── tool.py       # ToolId, ToolDescriptor, ToolCall, ToolResult
+├── schema.py     # FieldSpec, ParameterSchema, parameters_fingerprint, from_json_schema
+├── errors.py     # a taxonomia ToolError
+├── ports.py      # ToolBackend (Protocol)
+├── registry.py   # ToolRegistry, BackendStatus
+├── router.py     # ToolRouter, ToolRetryPolicy
+├── access.py     # ToolAccess
+└── adapters/
+    ├── local_backend.py   # fs.read_text, fs.write_text, fs.list_dir, system.info
+    ├── mcp_config.py      # mcp.json, ambiente mínimo do processo filho
+    ├── mcp_protocol.py    # JSON-RPC 2.0, handshake, tradução de schema e resultado
+    ├── mcp_stdio.py       # transporte: subprocesso + thread leitora
+    └── mcp_client.py      # McpToolBackend
 ```
 
-O MCP não é conhecido pelo Agent Runtime nem pela Skill diretamente — ele é
-um detalhe de **como** o Tool Router cumpre uma chamada de tool já
-aprovada. Isso é deliberado: o contrato de `Tool` não assume MCP como único
-backend possível no futuro, mesmo que seja o único implementado na Fase 5
-(ver [`architecture-contracts.md §3.7`](architecture-contracts.md#37-tool-router)).
+Este pacote **não** importa `jarvis.policy` nem `jarvis.skills`. O router assume
+que a chamada já foi autorizada; quem torna essa suposição verdadeira é o
+`ToolAccess`.
 
-## MCP Client
+## O contrato de Tool
 
-**Responsabilidade:** implementar o protocolo MCP em si — conexão com um
-MCP Server, descoberta de ferramentas expostas, validação de schema no
-limite do protocolo, invocação, reconexão em caso de queda.
+```python
+type ToolId = str  # "backend:nome"
 
-- **Permitido conhecer:** o protocolo MCP e a configuração de conexão dos
-  servers.
-- **Proibido conhecer:** Skills, Agent Runtime, Policy, Memory — o MCP
-  Client não sabe (nem precisa saber) por que uma chamada de tool está
-  acontecendo, só como executá-la tecnicamente.
-- **Entrada:** um `ToolCall` técnico, já vindo do Tool Router.
-- **Saída:** o resultado bruto do MCP server, traduzido para o contrato de
-  `ToolResult`/`ToolError` do Core — nunca o erro cru de transporte/
-  protocolo (JSON-RPC) vazando para cima.
 
-O MCP Client é parte de Infrastructure: implementa um port definido pelo
-Core, não o contrário.
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ToolDescriptor:
+    tool_id: ToolId
+    backend_id: str
+    name: str
+    summary: str
+    parameters: ParameterSchema
+    supports_idempotency_key: bool = False
+```
 
-## MCP Server e MCP Tool
+`ToolId` é qualificado por backend (`local:fs.read_text`, `workspace:search`), o
+que resolve colisão entre servidores por construção — dois MCP Servers podem
+expor `search` sem que o registry precise arbitrar.
 
-- **MCP Server** é o processo externo que expõe uma ou mais Tools via
-  protocolo MCP — um detalhe de onde uma Tool "mora", irrelevante para
-  quem consome a Tool através do Tool Router.
-- **MCP Tool** é a representação de wire-level de uma Tool, como
-  descoberta via protocolo MCP (schema JSON, nome, descrição). O MCP
-  Client/Tool Router traduzem essa representação para o contrato interno
-  de `Tool` do Core — o resto do sistema nunca lida com o formato de wire
-  diretamente.
+O **nome** aceita maiúsculas e `_` porque não é nosso: um servidor externo expõe
+`read_file` ou `getStatus`, e recusar a tool por causa da convenção dele seria
+rejeitar a integração inteira. O `backend_id`, esse sim, é escolhido por nós e
+continua em minúsculas.
 
-## Tool Router
+`ToolResult` só descreve **sucesso**. Falha é exceção da família `ToolError` —
+não um campo `ok` que alguém esquece de checar, que é a forma mais comum de uma
+falha virar sucesso silencioso.
 
-**Responsabilidade:** rotear uma chamada de tool vinda de uma Skill até o
-backend correto (MCP hoje; outros backends possíveis no futuro),
-normalizar resultados/erros, aplicar timeout por chamada, e registrar toda
-execução em um único ponto (choke point de auditoria — ver
-[security.md](security.md)).
+## O Tool Router
 
-| Aspecto | Onde ocorre |
+Ponto único de estrangulamento (`architecture-contracts.md §9`), na ordem em que
+as coisas acontecem:
+
+1. **resolve** o `tool_id` no registry (ausente ⇒ `ToolNotFoundError`);
+2. **valida** os parâmetros contra o schema anunciado, imediatamente antes do
+   dispatch e independentemente da validação de negócio da Skill — concerns
+   diferentes, não redundância;
+3. **aplica timeout** por chamada;
+4. **executa** via `ToolBackend`;
+5. **normaliza** toda falha para `ToolError`. Nenhum erro de JSON-RPC,
+   `subprocess` ou `OSError` cru chega à Skill. Um adapter que deixa escapar
+   exceção nativa tem bug: o router o converte em `ToolExecutionError` e registra
+   o stack trace completo no log, para quem for consertar;
+6. **registra** a execução — aqui, num lugar só. Skills não implementam log
+   próprio.
+
+O router **não** decide autorização e não conhece `jarvis.policy`.
+
+### Retry: duas condições, e as duas precisam valer
+
+O router repete apenas se o erro se declara `retryable` **e** a execução foi
+declarada `Idempotency.SAFE` pela Skill. Um timeout numa operação `unsafe` nunca
+é repetido — timeout não prova que a operação não aconteceu do outro lado
+(`PHASE-5.md §19`).
+
+## `ToolAccess`: menor privilégio por execução
+
+Uma Skill não recebe o router. Recebe um objeto amarrado a uma execução e
+limitado às tools que ela própria declarou em `required_tools`, construído apenas
+em `jarvis/execution` e apenas depois de uma `PolicyApproval` consumida.
+
+Uma Skill de leitura que tentasse chamar uma tool de escrita é recusada com
+`ToolNotPermittedError` — que é um `PolicyDenied` — antes de o router entrar na
+jogada, mesmo com aprovação válida em mãos.
+
+## O registry
+
+`ToolRegistry` mantém `ToolId → (backend, descriptor)`, construído por
+`refresh()` sobre os backends registrados. É **cache do ambiente, não fonte de
+verdade do domínio** (`PHASE-5.md §25`): vive em memória, é refeito a cada
+processo, e não é persistido — cache de catálogo só se justificaria com custo de
+descoberta medido, e não há.
+
+Um backend que falha na descoberta **não derruba o processo**: fica registrado
+como degradado, aparece assim em `jarvis tools list`, e uma Skill que dependa de
+uma tool ausente é negada pelo Policy Engine com `required_tool_unavailable`.
+
+## Backend local
+
+`local:` expõe quatro tools sobre o workspace (`JARVIS_FILE_SKILL_ROOT`, default
+`data/workspace`): `fs.read_text`, `fs.write_text`, `fs.list_dir`, `system.info`.
+
+Existe por duas razões, e a segunda é arquitetural: dá execução real de ponta a
+ponta sem processo externo, e é a prova executável de que o contrato de `Tool`
+**não** é o formato de wire do MCP disfarçado. Se só existisse o backend MCP,
+`ToolDescriptor` acabaria virando um espelho do protocolo sem que ninguém
+percebesse.
+
+É o único lugar da camada de ação que toca `pathlib` e `platform`. A raiz
+allowlistada é imposta **aqui**, não pela política — barreiras independentes:
+mesmo que uma regra de política seja afrouxada por engano, um caminho fora da
+raiz continua recusado. A checagem acontece **depois** de `resolve()`, e não
+sobre o texto, porque é assim que um symlink apontando para fora é pego.
+
+`system.info` reporta OS, versão de Python, contagem de CPUs e espaço livre —
+**não** hostname, usuário nem variáveis de ambiente. O resultado de uma Skill
+pode acabar num prompt enviado a um serviço de nuvem.
+
+## Cliente MCP
+
+Próprio, síncrono, sobre stdio + JSON-RPC 2.0, usando apenas a stdlib
+([ADR-0015](adr/0015-stdlib-stdio-mcp-client.md)). Quatro mensagens:
+`initialize`, `notifications/initialized`, `tools/list`, `tools/call`.
+
+### Ciclo de vida
+
+```text
+construir            → nada acontece
+discover()/invoke()  → conecta (Popen → initialize → notifications/initialized)
+                     → tools/list  |  tools/call
+falha de transporte  → encerra o processo e marca desconectado
+próxima chamada      → tenta reconectar uma vez
+```
+
+Não há laço de reconexão em background: não existe daemon nesta fase para
+hospedá-lo, e uma thread que reconecta sozinha seria infraestrutura sem dono.
+
+Três detalhes de portabilidade que não são óbvios:
+
+- **thread leitora + `queue`, nunca `select`** — `selectors` não funciona sobre
+  pipes no Windows, e o projeto é desenvolvido em Windows e testado em Linux;
+- **`stderr=DEVNULL`** — capturar exigiria uma segunda thread para não travar o
+  pipe, e o que viesse de lá acabaria em log, inclusive o que um servidor
+  mal-comportado imprimir sobre a própria credencial;
+- **UTF-8 forçado nas duas pontas** (`errors="replace"` na leitura,
+  `PYTHONIOENCODING=utf-8` no filho) — MCP é UTF-8 no fio, mas o padrão de um
+  processo Python no Windows ainda é a codificação do console. Sem isso, um acento
+  na descrição de uma tool derruba a thread leitora e o sintoma aparece como "o
+  servidor sumiu".
+
+### Configuração e fronteira de secrets
+
+`mcp.json`, caminho em `JARVIS_MCP_CONFIG`. Ausente = nenhum MCP Server, e todo o
+resto do sistema continua funcionando.
+
+```json
+{
+  "servers": {
+    "workspace": {
+      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "./data/workspace"],
+      "enabled": true,
+      "timeout_seconds": 20,
+      "startup_timeout_seconds": 10,
+      "env_keys": ["WORKSPACE_TOKEN"]
+    }
+  }
+}
+```
+
+**`env_keys` nomeia variáveis; nunca contém valores.** Os valores são lidos do
+ambiente do processo pai na hora de iniciar o filho. O arquivo é versionável sem
+risco.
+
+O ambiente do filho é **explícito e mínimo**: `PATH`, o mínimo que o sistema
+operacional exige, `PYTHONIOENCODING=utf-8` e as chaves pedidas. Não é
+`os.environ` inteiro — um MCP Server não tem por que herdar
+`JARVIS_GEMINI_API_KEY` só porque estava lá.
+
+### Normalização de resultado
+
+| Resposta MCP | Vira |
 |---|---|
-| Validação de regra de negócio | na Skill, antes de qualquer chamada de Tool |
-| Validação de schema técnico | Tool Router / MCP Client, imediatamente antes do dispatch |
-| Permissão | Policy Engine, **antes** de a Skill sequer executar (`PolicyApproval`) |
-| Timeout | Tool Router, por chamada — uma Skill que compõe várias Tools pode ter orçamento de tempo adicional próprio |
-| Normalização de erros | limite MCP Client → Tool Router: erros de transporte viram `ToolTimeoutError`, `ToolNotFoundError`, `ToolExecutionError`, `ToolInvalidInputError` |
-| Registro de execução | Tool Router — Skills não implementam logging próprio de execução de tool |
+| `isError: true` | `ToolExecutionError` com o texto do bloco |
+| `structuredContent` presente | `ToolResult.data = structuredContent` |
+| só `content: [{type:"text"}]` | `data = {"text": ...}`, `message` = texto |
+| bloco não textual | `[conteúdo <tipo> omitido]` — binário não trafega nesta fase |
+| `error` JSON-RPC `-32601` / `-32602` | `ToolNotFoundError` / `ToolInvalidInputError` |
+| outro `error` | `ToolExecutionError` |
+| corpo não-JSON, `id` divergente, EOF | `ToolProtocolError` |
+| deadline estourado | `ToolTimeoutError` |
 
-**Entrada:** um `ToolCall` já aprovado pelo Policy Engine. **Saída:** um
-`ToolResult` ou `ToolError` normalizado — Skills e Agent Runtime nunca veem
-erro cru de MCP/JSON-RPC.
+### Tradução de schema, e o que ela admite não validar
 
-## O que o Tool Router pode e não pode conhecer
+`from_json_schema` traduz um subconjunto documentado (`type`, `properties`,
+`required`, `enum`, `minimum`, `maximum`, `maxLength`, `pattern`,
+`additionalProperties`). O que não entende **não valida, e declara que não
+validou**: a palavra-chave ignorada vai para `ignored_keywords`, visível em
+`jarvis tools list --schemas`. Fingir ter validado `allOf` ou `$ref` seria pior
+que não validar, porque produziria confiança sem cobertura.
 
-Permitido: MCP Client port, registry de tools/discovery, configuração de
-timeout. Proibido: lógica de negócio de Skills, Agent Runtime, regras de
-decisão do Policy Engine — o Tool Router assume que a chamada já foi
-autorizada; ele não decide autorização, só executa o que já foi decidido.
+Um nome de tool impossível de qualificar como `ToolId` é **pulado**, não fatal: o
+resto do servidor continua utilizável.
+
+## Erros
+
+```text
+domínio     ToolNotFoundError · ToolInvalidInputError · ToolConfigurationError
+            ToolNotPermittedError (é PolicyDenied)
+provider    ToolTimeoutError (retryable) · ToolUnavailableError (retryable)
+            ToolExecutionError · ToolProtocolError (permanentes)
+```
+
+`ToolError` é o marcador comum, herdado junto com a categoria do contrato §13 —
+a herança dupla existe para que `except ToolError` capture a camada inteira e
+`retryable` continue vindo da categoria certa.
+
+## Testes sem serviço externo
+
+`tests/mcp_fake_server.py` é um MCP Server mínimo e determinístico, executado
+como `sys.executable -m tests.mcp_fake_server`. Ele exercita o caminho completo
+— `Popen`, thread leitora, framing, handshake, encerramento — sem rede, sem
+credencial e sem instalar nada, em Windows e em Linux. Suas tools existem para
+provocar cada ramo: `echo`, `fail`, `slow`, `garbage`, `Weird-Name`.
+
+O protocolo também é testado como função pura, e o cliente contra um
+`FakeTransport` em memória.
+
+## Comandos de CLI
+
+```bash
+jarvis tools list             # backends, estado e tools descobertas
+jarvis tools list --schemas   # + schema de entrada e o que não foi validado
+```
 
 ## Documentos relacionados
 
-- Contrato normativo completo: [architecture-contracts.md §9](architecture-contracts.md#9-tool--mcp-boundary)
-- Limites do MCP Client: [architecture-contracts.md §3.8](architecture-contracts.md#38-mcp-client)
-- Limites do Tool Router: [architecture-contracts.md §3.7](architecture-contracts.md#37-tool-router)
-- Distinção Skill/Tool/MCP: [ADR-0005](adr/0005-skill-tool-mcp-distinction.md)
-- Skill Contract: [skills.md](skills.md)
-- Visão geral: [architecture.md](architecture.md)
+- Skills e o que elas declaram: [skills.md](skills.md)
+- Policy Engine: [security.md](security.md)
+- Contrato normativo: [architecture-contracts.md §9](architecture-contracts.md#9-tool--mcp-boundary)
+- Cliente MCP: [ADR-0015](adr/0015-stdlib-stdio-mcp-client.md)
+- Plano da fase: [phase-5-plan.md](phase-5-plan.md)

@@ -118,6 +118,7 @@ flowchart TD
 | Policy Engine | única autoridade sobre `allow`/`deny`/`require_confirmation` | 5 | [security.md](security.md) |
 | Skills | capacidades de alto nível com risco/permissão próprios | 5 | [skills.md](skills.md) |
 | Tool Router + MCP | roteia chamadas de Skill até a ferramenta externa | 5 | [mcp.md](mcp.md) |
+| Action Execution | percorre a cadeia `Decision → Policy → Skill → Tool`; único que conhece os três | 5 | [security.md](security.md) |
 | Voice Interface | wake word → STT → Agent Runtime → TTS | 6 | ver §7 abaixo |
 | Notification System | entrega mensagens ao usuário com prioridade | 5/7 | [security.md](security.md) (confirmação), §6 abaixo (proatividade) |
 
@@ -205,6 +206,12 @@ flowchart LR
 
 A `Decision.act` do Agent Runtime é uma **proposta**, não uma ordem — ver
 [security.md](security.md) para o papel do Policy Engine nessa transição.
+
+Desde a Fase 5 essa cadeia existe em código. Quem a percorre é o `ActionExecutor`
+(`jarvis/execution/`), o único componente autorizado a conhecer Policy, Skills e
+Tools ao mesmo tempo ([ADR-0016](adr/0016-action-execution-orchestrator.md)) — o
+Agent Runtime entrega a `Decision` e para, e um teste arquitetural garante que
+não exista caminho de import dele até a execução.
 
 ### 4.3 Conversação por voz
 

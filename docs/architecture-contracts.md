@@ -267,12 +267,39 @@ código deve rejeitar qualquer import que a viole.
   Policy.
 - **Responsável:** Notification System.
 
-### 3.11 Persistence
+### 3.11 Action Execution
+
+> Acrescentado na Fase 5. Os contratos acima proíbem Agent Runtime (§3.4), Skills
+> (§3.6), Tool Router (§3.7) e Policy Engine (§3.5) de conhecerem uns aos outros
+> — ou seja, **nenhum deles pode percorrer a cadeia**. Este componente é quem
+> percorre, e ele existe justamente porque os outros quatro estão impedidos.
+> Ver [ADR-0016](adr/0016-action-execution-orchestrator.md).
+
+- **Responsabilidade:** transformar uma `Decision.act` aprovada em execução —
+  resolver a Skill no registry, validar parâmetros, montar o `PolicyRequest`,
+  consumir a `PolicyApproval`, construir o `ToolAccess` escopado, chamar a Skill e
+  registrar a auditoria. Também administra o estado de ações que aguardam
+  confirmação.
+- **Permitido conhecer:** Policy Engine, Skill Registry, Tool Router/Registry,
+  `AuditLog` port, `ActionRepository` port, Event System (para publicar a
+  trilha).
+- **Proibido conhecer:** LLM, `PromptBuilder`, internals de Memory e Context,
+  detalhes de wire do MCP, e qualquer adapter concreto.
+- **Entradas:** `ActionRequest` (skill, parâmetros, ator, correlação), montado
+  pelo composition root a partir de uma `Decision` ou de um comando do usuário.
+- **Saídas:** `ExecutionOutcome` — inclusive para `denied`, `awaiting_confirmation`,
+  `expired` e `duplicate`, que **não** são exceções (§13).
+- **Regra crítica:** é o **único** componente autorizado a construir um
+  `ToolAccess`, e só o faz depois de `PolicyEngine.consume()` ter passado. É o que
+  torna "nenhuma Tool é alcançada sem autorização" uma propriedade estrutural.
+- **Responsável:** Action Execution.
+
+### 3.12 Persistence
 - **Responsabilidade:** não é um componente com comportamento de negócio —
   é a regra transversal do §11.
 - **Responsável:** cada Repository port/adapter individual.
 
-### 3.12 Configuration
+### 3.13 Configuration
 - **Responsabilidade:** configuração técnica de sistema, carregada uma vez
   na composition root — ver detalhamento completo em §12.
 - **Permitido conhecer:** nada (é folha da árvore de dependências).
@@ -482,10 +509,12 @@ Decision.act(skill, params)
 > estruturalmente mais difícil pular a checagem de política, em vez de
 > depender apenas de disciplina de código.
 >
-> Este documento **não define** o mecanismo concreto de `PolicyApproval`
-> (token opaco, JWT, assinatura criptográfica, objeto em memória, etc.).
-> Essa é uma decisão de implementação a ser tomada na Fase 5, não um
-> contrato arquitetural.
+> O mecanismo concreto foi decidido na Fase 5 e registrado em
+> [ADR-0013](adr/0013-single-use-policy-approval.md): uma capacidade de **uso
+> único**, ligada a `execution_id` e ao fingerprint dos parâmetros, validada
+> contra o ledger do próprio Policy Engine que a emitiu — sem token persistido,
+> sem JWT e sem criptografia, porque o Jarvis roda em processo único e não há
+> fronteira de confiança a atravessar.
 
 ### 10.4 Denylist e auditoria
 
@@ -604,6 +633,20 @@ consequências completas:
   Memory System (Fase 3).
 - [ADR-0010](adr/0010-immutable-memory-and-supersession.md) — Memória
   imutável, com supersessão em vez de sobrescrita (Fase 3).
+- [ADR-0011](adr/0011-gemini-rest-llm-adapter.md) — Gemini via REST da stdlib
+  como primeiro `LLMProvider` (Fase 4).
+- [ADR-0012](adr/0012-core-owned-structured-decisions.md) — `Decision` como JSON
+  validado no Core, sem tool-calling do vendor (Fase 4).
+- [ADR-0013](adr/0013-single-use-policy-approval.md) — `PolicyApproval` como
+  capacidade de uso único, validada pelo emissor (Fase 5).
+- [ADR-0014](adr/0014-confirmation-state-and-event-answers.md) — Confirmação:
+  ação pendente como estado; resposta do usuário como evento (Fase 5).
+- [ADR-0015](adr/0015-stdlib-stdio-mcp-client.md) — Cliente MCP próprio,
+  síncrono, sobre stdio da biblioteca padrão (Fase 5).
+- [ADR-0016](adr/0016-action-execution-orchestrator.md) — `jarvis/execution` como
+  único caminho até uma Skill (Fase 5).
+- [ADR-0017](adr/0017-audit-trail-as-events.md) — Trilha de auditoria como
+  eventos, sem store de auditoria próprio (Fase 5).
 
 Decisões de campo-a-campo (schema exato de Event/Context/Memory, nomes
 exatos da taxonomia de erro) **não** viram ADR — são detalhe de contrato,

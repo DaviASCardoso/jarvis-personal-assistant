@@ -222,16 +222,52 @@ Sem `JARVIS_GEMINI_API_KEY` os três falham com mensagem explícita e código de
 saída 1; todo o resto do Jarvis continua funcionando offline.
 
 Para `act`/`act_and_notify` a saída imprime, literalmente,
-`proposta não executada: requer Policy Engine (Fase 5)`.
+`proposta não executada: use --execute para submetê-la à política`.
+
+## Execução (desde a Fase 5)
+
+O agente continua **sem** executar nada: ele entrega a `Decision` e para. O que
+mudou é que agora existe alguém para recebê-la.
+
+- **Ida.** `cli.capabilities_from(registry)` traduz `SkillDescriptor` em
+  `Capability` e injeta em `runtime.handle(..., capabilities=...)`. O agente não
+  importa `jarvis.skills`: recebe nomes, resumos e schemas como **texto**.
+  `Capability.parameters` carrega a linha de schema — sem ela o modelo acerta o
+  nome da skill e erra os campos, e a validação recusa a proposta inteira.
+- **Submissão.** `jarvis agent ask --execute` entrega `decision.action` ao
+  `ActionExecutor`. É **opt-in**: executar precisa ser escolha de quem chamou,
+  não consequência automática de raciocinar. Sem a flag, a decisão só é impressa.
+- **Volta.** O desfecho vira `ActionResultSummary` — dado puro em
+  `agent/input.py`, sem referência a `jarvis.execution` — e entra no envelope
+  como `last_action_result`, marcado na instrução de sistema como **fato**: o
+  modelo não pode afirmar sucesso sobre um `denied` ou um `failed`.
+- **Segundo turno só quando dá errado.** Em `act_and_notify` bem-sucedido a
+  mensagem do agente já existe, e pagar uma chamada extra para reformular o que
+  já foi dito é desperdício de quota. Numa negação ou falha, a frase em
+  linguagem natural vale a chamada — e é aí que o "observe result" do loop 4.6 se
+  fecha.
+
+`runtime.py`, `decision.py`, `ports.py` e o adapter Gemini **não mudaram** na
+Fase 5. `prompt.py` ganhou `Capability.parameters`, `PromptBudget.max_capabilities`
+e a seção `last_action_result`; capacidades entraram na escada de corte por
+último — cortar uma capacidade remove uma opção de ação, o que é pior que cortar
+contexto, mas não cortá-las nunca faria um registry grande estourar o orçamento
+sem saída.
 
 ## Limitações conhecidas
 
-- **Nada é executado.** `act` volta como proposta; `remember` não grava; `notify`/`ask` não entregam nada. Faltam Policy Engine (Fase 5) e Notification System (7.3).
-- **O agente não emite eventos.** Registrar decisões de forma consultável é a subfase 7.4.
-- **Não há subscrição no bus.** O caminho proativo é explícito (`agent react`); inscrever o agente é o Trigger Engine (7.1). Sem isso, todo `jarvis events emit` viraria uma chamada paga.
-- **Sem tool-calling e sem streaming** — ver ADR-0012 e `phase-4-plan.md §20`.
+- **`remember` ainda não grava**, e `notify`/`ask` não entregam nada: falta o
+  Notification System (7.3). Só `act` virou execução real.
+- **O agente não emite eventos.** Registrar decisões de forma consultável é a
+  subfase 7.4 — a trilha de execução (`action.*`, `policy.evaluated`) é emitida
+  pela camada de ação, não por ele.
+- **Não há subscrição no bus.** O caminho proativo é explícito (`agent react`);
+  inscrever o agente é o Trigger Engine (7.1). Sem isso, todo
+  `jarvis events emit` viraria uma chamada paga.
+- **Sem tool-calling e sem streaming** — ver ADR-0012 e `phase-4-plan.md §20`. O
+  gatilho que o ADR-0012 previu para reconsiderar (existir um registry real)
+  agora está disponível; a reavaliação não foi feita nesta fase.
 - **Conversa não é persistida.** Sessões são escopo de 6.4.
-- **`available_capabilities` chega vazio** e o modelo é instruído a não propor ação. Só a Fase 5 muda isso.
 - **`EmbeddingProvider` continua local** (`HashingEmbeddingProvider`): é port separado de `LLMProvider` (ADR-0002), e trocá-lo exigiria reindexar tudo e tornaria `memory add` dependente de rede.
 
 ## Como trocar de provider
