@@ -92,15 +92,51 @@ printf 'oi\ne o que mais?\n' | uv run jarvis agent chat
 
 # avalia proativamente um evento já registrado
 uv run jarvis agent react --event-id <id>
+
+# submete a ação proposta ao Policy Engine (opt-in)
+uv run jarvis agent ask "grave um lembrete no arquivo notas.txt" --execute
 ```
 
 O agente monta contexto + memória + conversa, chama o LLM através de um port
 vendor-agnóstico e devolve uma `Decision` estruturada (`ignore`, `remember`,
-`notify`, `ask`, `act`, `act_and_notify`). **Ele nunca executa nada**: uma
-proposta de ação volta marcada como não executada, porque quem autoriza é o
-Policy Engine, que chega na Fase 5. Um evento de baixa importância vira
+`notify`, `ask`, `act`, `act_and_notify`). **Ele nunca executa nada**: entrega a
+decisão e para. Quem autoriza é o Policy Engine, e quem executa é a camada de
+ação — por isso `--execute` é opt-in. Um evento de baixa importância vira
 silêncio sem sequer chamar o modelo. Detalhes em
 [`docs/agent-runtime.md`](docs/agent-runtime.md).
+
+### Skills, tools e ações
+
+```bash
+uv run jarvis skills list          # capacidades registradas, com risco e schema
+uv run jarvis tools list           # ferramentas descobertas, por backend
+uv run jarvis tools list --schemas # + schema de entrada e o que não foi validado
+
+# executa uma capacidade; a política decide antes de qualquer efeito
+uv run jarvis action run --skill system.status
+uv run jarvis action run --skill file.write \
+  --parameters '{"path": "nota.txt", "content": "olá"}'
+
+# ações de risco esperam confirmação explícita
+uv run jarvis action pending
+uv run jarvis action show <execution_id>
+uv run jarvis action confirm <execution_id>
+uv run jarvis action reject <execution_id> --reason "mudei de ideia"
+```
+
+A cadeia é `Decision → Policy Engine → Skill → Tool Router → Tool/MCP`, e cada
+seta é uma barreira: uma ação negada nunca alcança uma ferramenta, e uma ação que
+exige confirmação fica parada até você responder. Toda execução vira trilha de
+auditoria no Event Store:
+
+```bash
+uv run jarvis events list --correlation-id <id>
+```
+
+Ferramentas vêm de dois lugares: um backend **local** (arquivos do workspace e
+informação de sistema) e, opcionalmente, **MCP Servers** externos declarados em
+um `mcp.json`. Detalhes em [`docs/skills.md`](docs/skills.md),
+[`docs/mcp.md`](docs/mcp.md) e [`docs/security.md`](docs/security.md).
 
 ## Desenvolvimento
 
@@ -129,6 +165,13 @@ ROADMAP.md      planejamento por fases
 Todas as variáveis usam o prefixo `JARVIS_` e podem ser definidas no ambiente ou
 em um arquivo `.env` na raiz do projeto. Veja [`.env.example`](.env.example) para
 a lista completa e os valores padrão.
+
+`uv run jarvis info` imprime a configuração efetiva, incluindo a **política de
+autorização** em vigor — ela decide entre uma ação permitida e uma negada, e não
+deve ser adivinhada.
+
+Os dados locais ficam em `data/`: `events.db`, `context.db`, `memory.db`,
+`actions.db` e o workspace das skills de arquivo. Nenhum deles é versionado.
 
 ## Sobre containers
 

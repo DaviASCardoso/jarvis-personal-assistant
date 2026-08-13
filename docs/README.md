@@ -35,20 +35,23 @@ Esta pasta reúne a documentação técnica do Jarvis.
   (`LLMProvider` e o adapter Gemini, `Decision` e seu parsing, Importance
   Engine determinístico, prompt assembly com orçamento, erros/timeout/retry,
   observabilidade, comandos de CLI e limitações conhecidas).
+- [`skills.md`](skills.md) — **documentação de implementação**: descreve o Skill
+  Framework que existe em `src/jarvis/skills/` desde a Fase 5 (`SkillDescriptor`
+  com risco/efeitos/idempotência, validação de parâmetros, registry explícito,
+  catálogo inicial, ciclo de execução, `ToolAccess`).
+- [`mcp.md`](mcp.md) — **documentação de implementação**: descreve a camada de
+  Tools que existe em `src/jarvis/tools/` desde a Fase 5 (contrato de `Tool`,
+  Tool Router, registry e descoberta, backend local, cliente MCP sobre stdio,
+  `mcp.json`, normalização de erros).
+- [`security.md`](security.md) — **documentação de implementação**: descreve o
+  Policy Engine e a camada de execução que existem em `src/jarvis/policy/` e
+  `src/jarvis/execution/` desde a Fase 5 (regras e composição por força,
+  `PolicyApproval` de uso único, fluxo de confirmação, menor privilégio em três
+  camadas, as cinco impossibilidades, auditoria, secrets).
 - [`phase-1-plan.md`](phase-1-plan.md), [`phase-2-plan.md`](phase-2-plan.md),
-  [`phase-3-plan.md`](phase-3-plan.md) e [`phase-4-plan.md`](phase-4-plan.md) —
-  os planos técnicos aprovados que guiaram as Fases 1 a 4, incluindo as
-  decisões consideradas e as descartadas.
-- Documentação conceitual por componente, criada na subfase 0.5 — explica
-  cada contrato aprovado na 0.3 sem repeti-lo e sem implementar nada ainda
-  (cada componente segue sem código real até sua fase correspondente no
-  [roadmap](../ROADMAP.md)):
-  - [`skills.md`](skills.md) — distinção Skill/Tool/MCP, contrato de
-    Skill, cadeia Agent→Skill→Tool Router→MCP (Fase 5).
-  - [`mcp.md`](mcp.md) — MCP Client/Server/Tool, Tool Router (Fase 5).
-  - [`security.md`](security.md) — Policy Engine, `PolicyApproval`,
-    secrets, auditabilidade, prompt injection, menor privilégio (Fase 5,
-    transversal).
+  [`phase-3-plan.md`](phase-3-plan.md), [`phase-4-plan.md`](phase-4-plan.md) e
+  [`phase-5-plan.md`](phase-5-plan.md) — os planos técnicos aprovados que
+  guiaram as Fases 1 a 5, incluindo as decisões consideradas e as descartadas.
 
 ## Contratos vs. documentação de implementação
 

@@ -18,7 +18,7 @@ O sistema será construído em oito fases:
 - [x] **Fase 2 — Context Engine**
 - [x] **Fase 3 — Memory System**
 - [x] **Fase 4 — Agent Runtime**
-- [ ] **Fase 5 — Skills + MCP**
+- [x] **Fase 5 — Skills + MCP**
 - [ ] **Fase 6 — Voice**
 - [ ] **Fase 7 — Proactivity + Autonomy**
 - [ ] **Fase 8 — Integration + Hardening**
@@ -764,13 +764,13 @@ feat: complete autonomous reasoning core
 
 ## 5.1 — Skill Framework
 
-- [ ] Criar `Skill`
-- [ ] Definir capabilities
-- [ ] Definir permissions
-- [ ] Definir risk level
-- [ ] Definir confirmation policy
-- [ ] Definir execução
-- [ ] Criar testes
+- [x] Criar `Skill`
+- [x] Definir capabilities
+- [x] Definir permissions
+- [x] Definir risk level
+- [x] Definir confirmation policy
+- [x] Definir execução
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -782,12 +782,12 @@ feat: implement skill framework
 
 ## 5.2 — Skill Registry
 
-- [ ] Implementar registro
-- [ ] Implementar descoberta
-- [ ] Implementar consulta
-- [ ] Implementar listagem
-- [ ] Implementar capabilities
-- [ ] Criar testes
+- [x] Implementar registro
+- [x] Implementar descoberta
+- [x] Implementar consulta
+- [x] Implementar listagem
+- [x] Implementar capabilities
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -799,13 +799,13 @@ feat: implement skill registry
 
 ## 5.3 — Tool Abstraction
 
-- [ ] Criar `Tool`
-- [ ] Criar `ToolResult`
-- [ ] Criar `ToolError`
-- [ ] Definir input schema
-- [ ] Definir output schema
-- [ ] Definir risk metadata
-- [ ] Criar testes
+- [x] Criar `Tool`
+- [x] Criar `ToolResult`
+- [x] Criar `ToolError`
+- [x] Definir input schema
+- [x] Definir output schema
+- [x] Definir risk metadata
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -817,14 +817,14 @@ feat: implement tool abstraction
 
 ## 5.4 — MCP Client
 
-- [ ] Implementar conexão MCP
-- [ ] Implementar descoberta de ferramentas
-- [ ] Validar schemas
-- [ ] Implementar chamadas
-- [ ] Implementar erros
-- [ ] Implementar timeout
-- [ ] Implementar reconexão
-- [ ] Criar testes
+- [x] Implementar conexão MCP
+- [x] Implementar descoberta de ferramentas
+- [x] Validar schemas
+- [x] Implementar chamadas
+- [x] Implementar erros
+- [x] Implementar timeout
+- [x] Implementar reconexão
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -848,11 +848,11 @@ MCP
 External Tool
 ```
 
-- [ ] Implementar roteamento
-- [ ] Validar permissões
-- [ ] Validar schemas
-- [ ] Registrar execução
-- [ ] Tratar erros
+- [x] Implementar roteamento
+- [x] Validar permissões
+- [x] Validar schemas
+- [x] Registrar execução
+- [x] Tratar erros
 
 **Commit esperado:**
 
@@ -864,12 +864,12 @@ feat: implement tool router
 
 ## 5.6 — System + File Skills
 
-- [ ] Criar System Skill
-- [ ] Criar File Skill
-- [ ] Definir permissões
-- [ ] Implementar operações seguras
-- [ ] Implementar confirmação
-- [ ] Criar testes
+- [x] Criar System Skill
+- [x] Criar File Skill
+- [x] Definir permissões
+- [x] Implementar operações seguras
+- [x] Implementar confirmação
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -881,47 +881,38 @@ feat: implement system and file skills
 
 ## 5.7 — Calendar Skill
 
-- [ ] Criar integração
-- [ ] Ler eventos
-- [ ] Criar eventos
-- [ ] Atualizar eventos
-- [ ] Implementar permissões
-- [ ] Criar testes
+> Fora de escopo nesta fase: requer OAuth e integração externa; `PHASE-5.md` §43
+> a exclui expressamente. A integração futura é suportada por um MCP Server
+> registrado, sem alterar o Core.
 
 **Commit esperado:**
 
 ```text
 feat: implement calendar skill
 ```
-
 ---
 
 ## 5.8 — Email Skill
 
-- [ ] Criar integração
-- [ ] Ler emails
-- [ ] Buscar emails
-- [ ] Criar drafts
-- [ ] Enviar emails com confirmação
-- [ ] Implementar permissões
-- [ ] Criar testes
+> Fora de escopo nesta fase: requer OAuth e integração externa; `PHASE-5.md` §43
+> a exclui expressamente. A integração futura é suportada por um MCP Server
+> registrado, sem alterar o Core.
 
 **Commit esperado:**
 
 ```text
 feat: implement email skill
 ```
-
 ---
 
 ## 5.9 — Confirmation System
 
-- [ ] Definir níveis de risco
-- [ ] Definir ações automáticas
-- [ ] Definir ações que exigem confirmação
-- [ ] Criar confirmation manager
-- [ ] Registrar decisões
-- [ ] Criar testes
+- [x] Definir níveis de risco
+- [x] Definir ações automáticas
+- [x] Definir ações que exigem confirmação
+- [x] Criar confirmation manager
+- [x] Registrar decisões
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -933,12 +924,12 @@ feat: implement confirmation system
 
 ## 5.10 — Skills + MCP Integration
 
-- [ ] Integrar Agent Runtime
-- [ ] Integrar Skill Registry
-- [ ] Integrar Tool Router
-- [ ] Integrar MCP
-- [ ] Testar agente executando uma ação real
-- [ ] Validar permissões
+- [x] Integrar Agent Runtime
+- [x] Integrar Skill Registry
+- [x] Integrar Tool Router
+- [x] Integrar MCP
+- [x] Testar agente executando uma ação real
+- [x] Validar permissões
 
 **Commit esperado:**
 
@@ -948,7 +939,7 @@ feat: complete skill and MCP architecture
 
 ### Skills + MCP completos
 
-- [ ] **FASE 5 CONCLUÍDA**
+- [x] **FASE 5 CONCLUÍDA**
 
 ---
 
