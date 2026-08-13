@@ -45,6 +45,30 @@ class Settings(BaseSettings):
     llm_max_attempts: int = 2
     agent_importance_threshold: float = 0.45
 
+    # --- Fase 5: política, execução e tools -------------------------------
+    # Listas chegam como texto separado por vírgula e são convertidas pelo
+    # composition root. Os defaults são restritivos de propósito: uma allowlist
+    # vazia negaria tudo, e "esqueci de configurar" precisa falhar fechado, não
+    # aberto. As três capacidades abaixo cobrem exatamente as Skills embutidas.
+    policy_granted_capabilities: str = "system:read,file:read,file:write"
+    policy_denied_skills: str = ""
+    policy_denied_effects: str = ""
+    policy_confirm_effects: str = "destructive,physical,external_communication,spend"
+    policy_confirm_risk: str = "high"
+    policy_deny_risk: str = "critical"
+
+    # Uma aprovação existe para atravessar uma execução, não para ser guardada;
+    # uma confirmação espera por uma pessoa, e por isso vive muito mais.
+    approval_ttl_seconds: float = 60.0
+    confirmation_ttl_seconds: float = 900.0
+
+    file_skill_root: Path = Path("data/workspace")
+    tool_timeout_seconds: float = 20.0
+    tool_max_attempts: int = 2
+
+    # Ausente = nenhum MCP Server. Todo o resto do sistema funciona sem.
+    mcp_config_path: Path | None = None
+
 
 def load_settings() -> Settings:
     """Carrega a configuração atual."""

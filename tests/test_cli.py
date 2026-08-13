@@ -535,23 +535,31 @@ class TestAgent:
     def test_ask_reaches_the_model_with_context_and_capabilities(
         self, stub_provider: StubLLMProvider
     ) -> None:
+        """A partir da Fase 5 o envelope leva o catálogo real de Skills."""
         main(["agent", "ask", "oi"])
 
         envelope = json.loads(stub_provider.requests[0].messages[0].content)
         assert envelope["trigger"]["text"] == "oi"
-        assert envelope["constraints"]["capabilities_available"] is False
+        assert envelope["constraints"]["capabilities_available"] is True
+        offered = {item["name"] for item in envelope["available_capabilities"]}
+        assert offered == {"system.status", "file.read", "file.list", "file.write"}
+        # O schema viaja junto: sem ele o modelo acerta o nome e erra os campos.
+        by_name = {item["name"]: item for item in envelope["available_capabilities"]}
+        assert "path" in by_name["file.read"]["parameters"]
 
-    def test_an_action_proposal_is_printed_as_unexecuted(
+    def test_an_action_proposal_is_printed_as_unexecuted_without_execute(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """A saída precisa dizer o que aconteceu: nada."""
+        """Sem `--execute`, propor continua sendo só propor."""
         provider = StubLLMProvider(
-            [decision_json(type="act", message=None, action={"skill": "send_notification"})]
+            [decision_json(type="act", message=None, action={"skill": "system.status"})]
         )
         monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
 
-        assert main(["agent", "ask", "me avise"]) == 0
-        assert "não executada" in capsys.readouterr().out
+        assert main(["agent", "ask", "como está o sistema"]) == 0
+        out = capsys.readouterr().out
+        assert "não executada" in out
+        assert "status      completed" not in out
 
     def test_chat_keeps_the_conversation_across_lines(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

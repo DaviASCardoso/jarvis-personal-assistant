@@ -23,8 +23,10 @@ from pathlib import Path
 
 from jarvis import __version__
 from jarvis.agent import (
+    ActionResultSummary,
     AgentRuntime,
     AgentTurn,
+    Capability,
     Conversation,
     ConversationTurn,
     EventSummary,
@@ -66,6 +68,21 @@ from jarvis.events import (
 )
 from jarvis.events.adapters.logging_consumer import LoggingEventConsumer
 from jarvis.events.adapters.sqlite_store import SqliteEventStore
+from jarvis.execution import (
+    ActionEventConsumer,
+    ActionExecutor,
+    ActionRepositoryError,
+    ActionRequest,
+    Actor,
+    ExecutionError,
+    ExecutionOutcome,
+    ExecutionStatus,
+    PendingAction,
+    confirmation_event,
+)
+from jarvis.execution.adapters.event_audit import EventAuditLog
+from jarvis.execution.adapters.sqlite_actions import SqliteActionRepository
+from jarvis.execution.events import CONFIRMATION_EVENT_TYPES
 from jarvis.memory import (
     InvalidMemoryError,
     MemoryCriteria,
@@ -81,6 +98,31 @@ from jarvis.memory.adapters.context_bridge import context_to_query
 from jarvis.memory.adapters.event_consumer import MEMORY_EVENT_TYPES, MemoryEventConsumer
 from jarvis.memory.adapters.hashing_embeddings import HashingEmbeddingProvider
 from jarvis.memory.adapters.sqlite_repository import SqliteMemoryRepository
+from jarvis.policy import (
+    InvalidPolicyVocabularyError,
+    PolicyEngine,
+    PolicyError,
+    PolicyRuleSet,
+    parse_capabilities,
+    parse_effects,
+    parse_names,
+    parse_risk,
+)
+from jarvis.skills import SkillError, SkillRegistry
+from jarvis.skills.builtin import register_builtin_skills
+from jarvis.tools import (
+    ToolError,
+    ToolInvalidInputError,
+    ToolNotFoundError,
+    ToolNotPermittedError,
+    ToolRegistry,
+    ToolRetryPolicy,
+    ToolRouter,
+)
+from jarvis.tools.adapters.local_backend import LocalToolBackend
+from jarvis.tools.adapters.mcp_client import McpToolBackend
+from jarvis.tools.adapters.mcp_config import load_mcp_config
+from jarvis.tools.errors import ToolConfigurationError
 
 EXIT_OK = 0
 EXIT_INFRASTRUCTURE_ERROR = 1
@@ -173,6 +215,109 @@ def build_agent_runtime(
             max_output_tokens=settings.llm_max_output_tokens,
             timeout_seconds=settings.llm_timeout_seconds,
         ),
+    )
+
+
+def action_store_path(settings: Settings) -> Path:
+    """Quarto banco: estado operacional das execuções, separado dos outros três."""
+    return settings.data_dir / "actions.db"
+
+
+def build_skill_registry() -> SkillRegistry:
+    """Registro explícito das Skills embutidas.
+
+    Sem varredura de módulos: descobrir capacidades importando código arbitrário
+    é superfície de ataque e efeito colateral em import (`PHASE-5.md §26`).
+    """
+    return register_builtin_skills(SkillRegistry())
+
+
+def build_tool_registry(settings: Settings) -> ToolRegistry:
+    """Backend local sempre; MCP Servers só se houver `mcp.json`.
+
+    A descoberta acontece aqui, na borda. Um servidor indisponível não derruba o
+    processo — vira um backend degradado, visível em `jarvis tools list`, e as
+    Skills que dependiam dele passam a ser negadas pelo Policy Engine com
+    `required_tool_unavailable` em vez de falhar no meio da execução.
+    """
+    registry = ToolRegistry()
+    registry.register_backend(LocalToolBackend(root=settings.file_skill_root))
+    if settings.mcp_config_path is not None:
+        for spec in load_mcp_config(settings.mcp_config_path):
+            if spec.enabled:
+                registry.register_backend(McpToolBackend(spec))
+    registry.refresh()
+    return registry
+
+
+def build_policy_rules(settings: Settings) -> PolicyRuleSet:
+    return PolicyRuleSet(
+        granted_capabilities=parse_capabilities(settings.policy_granted_capabilities),
+        denied_skills=parse_names(settings.policy_denied_skills),
+        denied_effects=parse_effects(settings.policy_denied_effects),
+        confirm_effects=parse_effects(settings.policy_confirm_effects),
+        confirm_risk_at_or_above=parse_risk(settings.policy_confirm_risk),
+        deny_risk_at_or_above=parse_risk(settings.policy_deny_risk),
+    )
+
+
+def build_policy_engine(settings: Settings) -> PolicyEngine:
+    return PolicyEngine(
+        rules=build_policy_rules(settings), approval_ttl_seconds=settings.approval_ttl_seconds
+    )
+
+
+def build_action_executor(
+    settings: Settings,
+    *,
+    store: SqliteEventStore,
+    actions: SqliteActionRepository,
+    tools: ToolRegistry,
+    skills: SkillRegistry,
+) -> ActionExecutor:
+    """Monta a cadeia de execução inteira. Único lugar que conhece os quatro pacotes."""
+    audit = EventAuditLog(_build_publisher(store))
+    return ActionExecutor(
+        skills=skills,
+        tools=tools,
+        router=ToolRouter(
+            registry=tools,
+            audit=audit,
+            default_timeout_seconds=settings.tool_timeout_seconds,
+            retry=ToolRetryPolicy(max_attempts=settings.tool_max_attempts),
+        ),
+        policy=build_policy_engine(settings),
+        repository=actions,
+        audit=audit,
+        confirmation_ttl_seconds=settings.confirmation_ttl_seconds,
+        tool_timeout_seconds=settings.tool_timeout_seconds,
+    )
+
+
+def _build_publisher(
+    store: SqliteEventStore, *, confirmations: ActionEventConsumer | None = None
+) -> EventPublisher:
+    bus = EventBus()
+    bus.subscribe(LoggingEventConsumer())
+    if confirmations is not None:
+        bus.subscribe(confirmations, event_types=CONFIRMATION_EVENT_TYPES)
+    return EventPublisher(store=store, bus=bus)
+
+
+def capabilities_from(skills: SkillRegistry) -> tuple[Capability, ...]:
+    """Traduz descritores de Skill em capacidades para o envelope do LLM.
+
+    A tradução acontece **aqui**, e não no registry: é o que mantém
+    `jarvis.skills` sem dependência de `jarvis.agent`, e o agente sem dependência
+    de `jarvis.skills`.
+    """
+    return tuple(
+        Capability(
+            name=descriptor.name,
+            summary=descriptor.summary,
+            parameters=descriptor.parameters.describe(),
+        )
+        for descriptor in skills.list()
     )
 
 
@@ -296,6 +441,53 @@ def build_parser() -> argparse.ArgumentParser:
 
     react = agent_actions.add_parser("react", help="Avalia proativamente um evento já registrado.")
     react.add_argument("--event-id", required=True)
+    react.add_argument(
+        "--execute",
+        action="store_true",
+        help="Submete a ação proposta ao Policy Engine (por padrão a decisão só é impressa).",
+    )
+    ask.add_argument(
+        "--execute",
+        action="store_true",
+        help="Submete a ação proposta ao Policy Engine (por padrão a decisão só é impressa).",
+    )
+
+    skills = subparsers.add_parser("skills", help="Lista as capacidades registradas.")
+    skills.set_defaults(skills_parser=skills)
+    skills_actions = skills.add_subparsers(dest="skills_command")
+    skills_actions.add_parser("list", help="Lista as skills e seus metadados de risco.")
+
+    tools = subparsers.add_parser("tools", help="Inspeciona as ferramentas disponíveis.")
+    tools.set_defaults(tools_parser=tools)
+    tools_actions = tools.add_subparsers(dest="tools_command")
+    tools_list = tools_actions.add_parser("list", help="Lista as tools descobertas por backend.")
+    tools_list.add_argument(
+        "--schemas", action="store_true", help="Mostra o schema de entrada de cada tool."
+    )
+
+    action = subparsers.add_parser("action", help="Executa e confirma ações.")
+    action.set_defaults(action_parser=action)
+    action_actions = action.add_subparsers(dest="action_command")
+
+    run = action_actions.add_parser("run", help="Submete uma skill ao Policy Engine.")
+    run.add_argument("--skill", required=True)
+    run.add_argument("--parameters", help="Parâmetros da skill, como objeto JSON.")
+    run.add_argument("--actor", default=Actor.USER.value, choices=[item.value for item in Actor])
+    run.add_argument("--correlation-id", help="Cadeia causal à qual a execução pertence.")
+
+    action_actions.add_parser("pending", help="Lista as ações aguardando confirmação.")
+
+    show = action_actions.add_parser("show", help="Mostra o estado de uma execução.")
+    show.add_argument("execution_id")
+
+    confirm = action_actions.add_parser(
+        "confirm", help="Confirma uma ação pendente e retoma a execução."
+    )
+    confirm.add_argument("execution_id")
+
+    reject = action_actions.add_parser("reject", help="Recusa uma ação pendente.")
+    reject.add_argument("execution_id")
+    reject.add_argument("--reason", default="rejected_by_user")
 
     return parser
 
@@ -414,6 +606,12 @@ def _info(settings: Settings) -> int:
     print(f"event_store   {event_store_path(settings)}")
     print(f"context_store {context_store_path(settings)}")
     print(f"memory_store  {memory_store_path(settings)}")
+    print(f"action_store  {action_store_path(settings)}")
+    print(f"workspace     {settings.file_skill_root}")
+    print(f"mcp_config    {settings.mcp_config_path or ABSENT}")
+    # A política efetiva não deve ser adivinhada: ela é a diferença entre uma
+    # ação permitida e uma negada, e vive em variáveis de ambiente.
+    print(f"policy        {build_policy_rules(settings).describe()}")
     return EXIT_OK
 
 
@@ -646,7 +844,7 @@ def _print_turn(turn: AgentTurn) -> None:
         print("            (proposta; gravação de memória entra numa fase futura)")
     if decision.action is not None:
         print(f"action      {decision.action.skill} {json.dumps(dict(decision.action.parameters))}")
-        print("            proposta não executada: requer Policy Engine (Fase 5)")
+        print("            proposta não executada: use --execute para submetê-la à política")
     if turn.importance is not None:
         assessment = turn.importance
         print(
@@ -680,8 +878,83 @@ def _recent_events(store: SqliteEventStore) -> tuple[EventSummary, ...]:
     )
 
 
+def _submit_proposal(
+    settings: Settings,
+    *,
+    turn: AgentTurn,
+    store: SqliteEventStore,
+    skills: SkillRegistry,
+    actor: Actor,
+) -> ExecutionOutcome | None:
+    """Entrega a proposta do agente ao Policy Engine.
+
+    O agente não chega até aqui: quem lê a `Decision` e submete é o composition
+    root. É o mesmo motivo de `--execute` ser opt-in — executar precisa ser
+    escolha de quem chamou, não consequência automática de raciocinar.
+    """
+    proposal = turn.decision.action
+    if proposal is None:
+        return None
+
+    with SqliteActionRepository.open(action_store_path(settings)) as actions:
+        tools = build_tool_registry(settings)
+        try:
+            executor = build_action_executor(
+                settings, store=store, actions=actions, tools=tools, skills=skills
+            )
+            return executor.submit(
+                ActionRequest(
+                    skill=proposal.skill,
+                    parameters=dict(proposal.parameters),
+                    correlation_id=turn.decision.correlation_id,
+                    actor=actor,
+                    decision_id=turn.decision.decision_id,
+                    causation_id=turn.decision.causation_id,
+                )
+            )
+        finally:
+            tools.close()
+
+
+def _explain_outcome(
+    runtime: AgentRuntime,
+    outcome: ExecutionOutcome,
+    *,
+    conversation_id: str,
+    recent: tuple[EventSummary, ...],
+) -> None:
+    """Segundo turno de raciocínio — só quando a execução **não** deu certo.
+
+    Em `act_and_notify` bem-sucedido a mensagem do agente já existe, e pagar uma
+    chamada extra ao modelo para reformular o que já foi dito é desperdício de
+    quota. Já uma negação ou uma falha merecem uma frase em linguagem natural, e
+    é aí que o "observe result" do loop se fecha.
+    """
+    if outcome.status is ExecutionStatus.COMPLETED:
+        return
+    print()
+    follow_up = runtime.handle(
+        UserMessage(
+            text="Explique ao usuário, em uma frase, o desfecho da ação que acabou de ser tentada.",
+            at=datetime.now(UTC),
+            conversation_id=conversation_id,
+        ),
+        recent_events=recent,
+        last_action_result=ActionResultSummary(
+            skill=outcome.skill,
+            status=outcome.status.value,
+            execution_id=outcome.execution_id,
+            summary=outcome.summary,
+            reason=outcome.reason,
+        ),
+    )
+    if follow_up.decision.message is not None:
+        print(f"agente      {follow_up.decision.message}")
+
+
 def _agent_ask(args: argparse.Namespace, settings: Settings) -> int:
     conversation_id = args.conversation_id or new_event_id()
+    skills = build_skill_registry()
     with (
         SqliteEventStore.open(event_store_path(settings)) as store,
         SqliteContextSnapshotRepository.open(context_store_path(settings)) as snapshots,
@@ -690,11 +963,22 @@ def _agent_ask(args: argparse.Namespace, settings: Settings) -> int:
         runtime = build_agent_runtime(
             settings, context=_prepared_context(store, snapshots), memories=memories
         )
+        recent = _recent_events(store)
         turn = runtime.handle(
             UserMessage(text=args.text, at=datetime.now(UTC), conversation_id=conversation_id),
-            recent_events=_recent_events(store),
+            recent_events=recent,
+            capabilities=capabilities_from(skills),
         )
-    _print_turn(turn)
+        _print_turn(turn)
+
+        if args.execute and turn.decision.proposes_action:
+            outcome = _submit_proposal(
+                settings, turn=turn, store=store, skills=skills, actor=Actor.USER
+            )
+            if outcome is not None:
+                print()
+                _print_outcome(outcome)
+                _explain_outcome(runtime, outcome, conversation_id=conversation_id, recent=recent)
     return EXIT_OK
 
 
@@ -738,6 +1022,7 @@ def _agent_chat(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def _agent_react(args: argparse.Namespace, settings: Settings) -> int:
+    skills = build_skill_registry()
     with (
         SqliteEventStore.open(event_store_path(settings)) as store,
         SqliteContextSnapshotRepository.open(context_store_path(settings)) as snapshots,
@@ -750,9 +1035,21 @@ def _agent_react(args: argparse.Namespace, settings: Settings) -> int:
             settings, context=_prepared_context(store, snapshots), memories=memories
         )
         turn = runtime.handle(
-            EventTrigger.from_recorded(recorded), recent_events=_recent_events(store)
+            EventTrigger.from_recorded(recorded),
+            recent_events=_recent_events(store),
+            capabilities=capabilities_from(skills),
         )
-    _print_turn(turn)
+        _print_turn(turn)
+
+        if args.execute and turn.decision.proposes_action:
+            # `Actor.EVENT`: ninguém pediu isto. É o que faz uma skill
+            # `conditional` exigir confirmação em vez de executar direto.
+            outcome = _submit_proposal(
+                settings, turn=turn, store=store, skills=skills, actor=Actor.EVENT
+            )
+            if outcome is not None:
+                print()
+                _print_outcome(outcome)
     return EXIT_OK
 
 
@@ -765,6 +1062,219 @@ def _agent(args: argparse.Namespace, settings: Settings) -> int:
     if args.agent_command == "chat":
         return _agent_chat(args, settings)
     return _agent_react(args, settings)
+
+
+def _print_outcome(outcome: ExecutionOutcome) -> None:
+    print(f"execution   {outcome.execution_id}")
+    print(f"status      {outcome.status.value}")
+    print(f"skill       {outcome.skill}")
+    print(f"reason      {outcome.reason or ABSENT}")
+    if outcome.detail:
+        print(f"detail      {outcome.detail}")
+    if outcome.summary:
+        print(f"summary     {outcome.summary}")
+    if outcome.verdict is not None:
+        verdict = outcome.verdict
+        print(
+            f"policy      {verdict.decision.value} via {verdict.rule_id} "
+            f"(v{verdict.policy_version})"
+        )
+    if outcome.tools_used:
+        print(f"tools       {', '.join(outcome.tools_used)}")
+    if outcome.duration_ms is not None:
+        print(f"duration    {outcome.duration_ms:.1f} ms")
+    if outcome.expires_at is not None and outcome.status is ExecutionStatus.AWAITING_CONFIRMATION:
+        print(f"expires_at  {outcome.expires_at.isoformat()}")
+    if outcome.data:
+        print(f"data        {json.dumps(dict(outcome.data), ensure_ascii=False)}")
+    print(f"correlation {outcome.correlation_id}")
+
+
+def _print_pending_row(pending: PendingAction) -> None:
+    expires = pending.expires_at.isoformat() if pending.expires_at else ABSENT
+    confirmed = "sim" if pending.is_confirmed else "não"
+    print(
+        f"{pending.execution_id}  {pending.skill:<16} {pending.actor.value:<7} "
+        f"confirmada={confirmed:<4} expira={expires}"
+    )
+
+
+def _skills(args: argparse.Namespace, settings: Settings) -> int:
+    if args.skills_command is None:
+        args.skills_parser.print_help()
+        return EXIT_OK
+
+    for descriptor in build_skill_registry().list():
+        print(f"{descriptor.name}")
+        print(f"    {descriptor.summary}")
+        print(
+            f"    risco={descriptor.risk.value} "
+            f"efeitos={','.join(sorted(descriptor.effects)) or ABSENT} "
+            f"confirmação={descriptor.confirmation_requirement.value} "
+            f"idempotência={descriptor.idempotency.value}"
+        )
+        print(f"    capacidades={','.join(sorted(descriptor.capabilities)) or ABSENT}")
+        print(f"    tools={','.join(descriptor.required_tools) or ABSENT}")
+        print(f"    parâmetros={descriptor.parameters.describe() or ABSENT}")
+    return EXIT_OK
+
+
+def _tools(args: argparse.Namespace, settings: Settings) -> int:
+    if args.tools_command is None:
+        args.tools_parser.print_help()
+        return EXIT_OK
+
+    registry = build_tool_registry(settings)
+    try:
+        for status in registry.statuses():
+            state = "ok" if status.available else f"indisponível ({status.detail})"
+            print(f"backend {status.backend_id:<16} {state}  tools={status.tool_count}")
+        for descriptor in registry.list():
+            print(f"{descriptor.tool_id:<32} {descriptor.summary}")
+            if args.schemas:
+                print(f"    parâmetros={descriptor.parameters.describe() or ABSENT}")
+                if descriptor.parameters.ignored_keywords:
+                    # Honestidade sobre o que não foi validado: o schema do
+                    # servidor pode usar construções que não traduzimos.
+                    print(f"    não validado: {', '.join(descriptor.parameters.ignored_keywords)}")
+    finally:
+        registry.close()
+    return EXIT_OK
+
+
+def _action_run(args: argparse.Namespace, settings: Settings) -> int:
+    parameters = (
+        _parse_json_object(args.parameters, field_name="--parameters") if args.parameters else {}
+    )
+    skills = build_skill_registry()
+    with (
+        SqliteEventStore.open(event_store_path(settings)) as store,
+        SqliteActionRepository.open(action_store_path(settings)) as actions,
+    ):
+        tools = build_tool_registry(settings)
+        try:
+            executor = build_action_executor(
+                settings, store=store, actions=actions, tools=tools, skills=skills
+            )
+            outcome = executor.submit(
+                ActionRequest(
+                    skill=args.skill,
+                    parameters=parameters,
+                    correlation_id=args.correlation_id or new_event_id(),
+                    actor=Actor(args.actor),
+                )
+            )
+        finally:
+            tools.close()
+    _print_outcome(outcome)
+    return EXIT_OK
+
+
+def _action_pending(settings: Settings) -> int:
+    skills = build_skill_registry()
+    with (
+        SqliteEventStore.open(event_store_path(settings)) as store,
+        SqliteActionRepository.open(action_store_path(settings)) as actions,
+    ):
+        # Registry vazio de propósito: listar pendências não executa nada, e não
+        # há por que subir um MCP Server para responder "o que está esperando?".
+        executor = build_action_executor(
+            settings, store=store, actions=actions, tools=ToolRegistry(), skills=skills
+        )
+        expired = executor.expire()
+        found = executor.pending()
+
+    if expired:
+        print(f"{expired} pendência(s) expiraram", file=sys.stderr)
+    if not found:
+        print("nenhuma ação aguardando confirmação")
+        return EXIT_OK
+    for pending in found:
+        _print_pending_row(pending)
+    return EXIT_OK
+
+
+def _action_show(args: argparse.Namespace, settings: Settings) -> int:
+    with SqliteActionRepository.open(action_store_path(settings)) as actions:
+        pending = actions.get(args.execution_id)
+
+    if pending is None:
+        print("execução não encontrada", file=sys.stderr)
+        return EXIT_INVALID_INPUT
+    print(f"execution   {pending.execution_id}")
+    print(f"skill       {pending.skill}")
+    print(f"status      {pending.status.value}")
+    print(f"actor       {pending.actor.value}")
+    print(f"reason      {pending.reason or ABSENT}")
+    print(f"requested   {pending.requested_at.isoformat()}")
+    print(f"updated     {pending.updated_at.isoformat()}")
+    print(f"expires_at  {pending.expires_at.isoformat() if pending.expires_at else ABSENT}")
+    print(f"confirmed   {pending.confirmed_at.isoformat() if pending.confirmed_at else ABSENT}")
+    print(f"correlation {pending.correlation_id}")
+    print(f"decision    {pending.decision_id or ABSENT}")
+    # O fingerprint, e não os parâmetros: é ele que amarra confirmação e
+    # aprovação a esta execução, e é o que se compara.
+    print(f"fingerprint {pending.parameters_fingerprint}")
+    return EXIT_OK
+
+
+def _action_answer(args: argparse.Namespace, settings: Settings, *, granted: bool) -> int:
+    skills = build_skill_registry()
+    with (
+        SqliteEventStore.open(event_store_path(settings)) as store,
+        SqliteActionRepository.open(action_store_path(settings)) as actions,
+    ):
+        pending = actions.get(args.execution_id)
+        if pending is None:
+            print("execução não encontrada", file=sys.stderr)
+            return EXIT_INVALID_INPUT
+
+        # A resposta do usuário entra no sistema como **evento**, e é o consumer
+        # que a projeta no estado (contracts §10.2). O CLI não marca o registro
+        # à mão e não executa nada aqui.
+        publisher = _build_publisher(store, confirmations=ActionEventConsumer(actions))
+        publisher.publish(
+            confirmation_event(
+                granted=granted,
+                execution_id=pending.execution_id,
+                parameters_fingerprint=pending.parameters_fingerprint,
+                correlation_id=pending.correlation_id,
+                occurred_at=datetime.now(UTC),
+                causation_id=pending.causation_id,
+                reason="" if granted else getattr(args, "reason", ""),
+            )
+        )
+
+        if not granted:
+            print(f"rejeitada   {pending.execution_id}")
+            return EXIT_OK
+
+        # Retomar é um passo separado, e ele reavalia a política do zero.
+        tools = build_tool_registry(settings)
+        try:
+            executor = build_action_executor(
+                settings, store=store, actions=actions, tools=tools, skills=skills
+            )
+            outcome = executor.resume(pending.execution_id)
+        finally:
+            tools.close()
+    _print_outcome(outcome)
+    return EXIT_OK
+
+
+def _action(args: argparse.Namespace, settings: Settings) -> int:
+    if args.action_command is None:
+        args.action_parser.print_help()
+        return EXIT_OK
+    if args.action_command == "run":
+        return _action_run(args, settings)
+    if args.action_command == "pending":
+        return _action_pending(settings)
+    if args.action_command == "show":
+        return _action_show(args, settings)
+    if args.action_command == "confirm":
+        return _action_answer(args, settings, granted=True)
+    return _action_answer(args, settings, granted=False)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -788,6 +1298,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _memory(args, settings)
         if args.command == "agent":
             return _agent(args, settings)
+        if args.command == "skills":
+            return _skills(args, settings)
+        if args.command == "tools":
+            return _tools(args, settings)
+        if args.command == "action":
+            return _action(args, settings)
 
         if args.events_command is None:
             args.events_parser.print_help()
@@ -802,6 +1318,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         InvalidDecisionError,
         InvalidLLMRequestError,
         PromptTooLargeError,
+        # `PolicyError` e `SkillError` são de domínio: entrada ou autorização,
+        # nunca falha de infraestrutura. Negação normal não passa por aqui — ela
+        # volta como `ExecutionOutcome` e é impressa com sucesso.
+        PolicyError,
+        SkillError,
+        ExecutionError,
+        InvalidPolicyVocabularyError,
+        # Os `ToolError` de domínio precisam vir antes do bloco de
+        # infraestrutura: `except` casa na primeira cláusula, e um schema
+        # violado é entrada inválida (código 2), não indisponibilidade (código 1).
+        ToolConfigurationError,
+        ToolInvalidInputError,
+        ToolNotFoundError,
+        ToolNotPermittedError,
     ) as error:
         print(f"erro: {error}", file=sys.stderr)
         return EXIT_INVALID_INPUT
@@ -810,6 +1340,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         ContextSnapshotError,
         MemoryRepositoryError,
         LLMProviderError,
+        ActionRepositoryError,
+        ToolError,
     ) as error:
         print(f"erro: {error}", file=sys.stderr)
         return EXIT_INFRASTRUCTURE_ERROR
