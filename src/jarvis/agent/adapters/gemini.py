@@ -20,6 +20,7 @@ import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from typing import Final
 
+from jarvis.agent.decision import DecisionType
 from jarvis.agent.errors import (
     LLMAuthenticationError,
     LLMInvalidResponseError,
@@ -50,6 +51,45 @@ DEFAULT_GEMINI_MODEL: Final = "gemini-2.0-flash"
 
 # `role` do lado do modelo na API: o Core chama de `assistant`, o Gemini de `model`.
 _ROLE_NAMES: Final[Mapping[Role, str]] = {Role.USER: "user", Role.ASSISTANT: "model"}
+_MEMORY_TYPE_VALUES: Final = (
+    "episodic",
+    "semantic",
+    "preference",
+    "procedural",
+    "working",
+    "task",
+)
+# O MIME type sozinho torna JSON mais provável, mas não impede o modelo de
+# responder com prosa. Este é o subconjunto OpenAPI aceito por `responseSchema`;
+# a validação completa (incluindo a matriz das seis variantes) continua no Core.
+_DECISION_RESPONSE_SCHEMA: Final[dict[str, object]] = {
+    "type": "object",
+    "properties": {
+        "type": {"type": "string", "enum": [item.value for item in DecisionType]},
+        "reason": {"type": "string"},
+        "message": {"type": "string"},
+        "memory": {
+            "type": "object",
+            "properties": {
+                "type": {"type": "string", "enum": _MEMORY_TYPE_VALUES},
+                "content": {"type": "string"},
+                "subject": {"type": "string"},
+                "importance": {"type": "number", "minimum": 0, "maximum": 1},
+                "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            },
+            "required": ["type", "content"],
+        },
+        "action": {
+            "type": "object",
+            "properties": {
+                "skill": {"type": "string"},
+                "parameters": {"type": "object"},
+            },
+            "required": ["skill"],
+        },
+    },
+    "required": ["type", "reason"],
+}
 
 _STOP_REASONS: Final[Mapping[str, StopReason]] = {
     "STOP": StopReason.COMPLETE,
@@ -114,10 +154,8 @@ class GeminiLLMProvider:
             "maxOutputTokens": request.max_output_tokens,
         }
         if request.response_format is ResponseFormat.JSON_OBJECT:
-            # Structured output sem enviar schema: a validação autoritativa é do
-            # Core de qualquer forma (ADR-0012), e pedir só o mime type funciona
-            # em provider que não suporte schema.
             generation["responseMimeType"] = "application/json"
+            generation["responseSchema"] = _DECISION_RESPONSE_SCHEMA
 
         return {
             "systemInstruction": {"parts": [{"text": request.system}]},

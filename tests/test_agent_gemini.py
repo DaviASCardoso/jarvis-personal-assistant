@@ -109,6 +109,17 @@ def test_generation_parameters_are_translated() -> None:
     assert generation["temperature"] == 0.3
     assert generation["maxOutputTokens"] == 256
     assert generation["responseMimeType"] == "application/json"
+    schema = generation["responseSchema"]
+    assert schema["type"] == "object"
+    assert schema["required"] == ["type", "reason"]
+    assert schema["properties"]["type"]["enum"] == [
+        "ignore",
+        "remember",
+        "notify",
+        "ask",
+        "act",
+        "act_and_notify",
+    ]
 
 
 def test_a_text_request_does_not_ask_for_json() -> None:
@@ -117,6 +128,7 @@ def test_a_text_request_does_not_ask_for_json() -> None:
     provider(opener).generate(request(response_format=ResponseFormat.TEXT))
 
     assert "responseMimeType" not in sent(opener)["generationConfig"]
+    assert "responseSchema" not in sent(opener)["generationConfig"]
 
 
 def test_the_request_timeout_reaches_the_transport() -> None:
