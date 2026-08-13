@@ -76,3 +76,8 @@ original fazia sentido no momento em que foi tomada.
 | [0010](0010-immutable-memory-and-supersession.md) | Memória imutável, com supersessão em vez de sobrescrita | Accepted |
 | [0011](0011-gemini-rest-llm-adapter.md) | Gemini em nuvem, via REST da stdlib, como primeiro `LLMProvider` | Accepted |
 | [0012](0012-core-owned-structured-decisions.md) | `Decision` como JSON validado no Core, sem tool-calling do vendor | Accepted |
+| [0013](0013-single-use-policy-approval.md) | `PolicyApproval` como capacidade de uso único, validada pelo emissor | Accepted |
+| [0014](0014-confirmation-state-and-event-answers.md) | Confirmação: ação pendente como estado; resposta do usuário como evento | Accepted |
+| [0015](0015-stdlib-stdio-mcp-client.md) | Cliente MCP próprio, síncrono, sobre stdio da biblioteca padrão | Accepted |
+| [0016](0016-action-execution-orchestrator.md) | `jarvis/execution` como único caminho até uma Skill | Accepted |
+| [0017](0017-audit-trail-as-events.md) | Trilha de auditoria como eventos, sem store de auditoria próprio | Accepted |
