@@ -5,9 +5,8 @@ toda categoria de erro declara se é `retryable` (transitória) ou permanente, p
 que a lógica de retry consulte essa classificação em vez de cada componente
 inventar o próprio critério.
 
-Só as categorias com consumidor real existem aqui. As demais previstas no contrato
-(`PolicyDenied`, `UserFacingError`) serão adicionadas pelas fases que as
-introduzirem.
+Só as categorias com consumidor real existem aqui. `UserFacingError`, prevista no
+contrato, segue sem consumidor e por isso sem código.
 """
 
 from typing import ClassVar
@@ -23,6 +22,18 @@ class DomainError(JarvisError):
     """Violação de uma regra de domínio.
 
     Nunca é retryable: reapresentar a mesma entrada produz exatamente o mesmo erro.
+    """
+
+
+class PolicyDenied(DomainError):
+    """Uma execução foi barrada pela fronteira de autorização.
+
+    **Não é uma falha** — é uma negação deliberada
+    ([`architecture-contracts.md §13`](../../docs/architecture-contracts.md#13-error-contract)).
+    Por isso o caminho normal de negação devolve um `ExecutionOutcome`, não
+    levanta: esta exceção é a *guarda* dos caminhos que não podem prosseguir de
+    jeito nenhum (aprovação forjada, expirada, já usada, ou uma Tool fora do que
+    a Skill declarou precisar).
     """
 
 
