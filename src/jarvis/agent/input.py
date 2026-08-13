@@ -125,4 +125,31 @@ class EventTrigger:
         return " ".join(words)[:MAX_RETRIEVAL_TEXT_LENGTH]
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ActionResultSummary:
+    """O desfecho de uma execução, na forma que o agente pode ler.
+
+    **Dado puro, de propósito.** É o que permite fechar o laço "resultado →
+    agente" sem que `jarvis.agent` importe `jarvis.execution` — quem traduz um
+    `ExecutionOutcome` nisto é o composition root. Sem essa indireção, o agente
+    ganharia uma referência à camada que executa, e o teste que garante a
+    ausência desse caminho (ADR-0003) passaria a falhar com razão.
+
+    Não carrega `data`: o conteúdo de um arquivo lido não tem por que viajar até
+    um serviço de nuvem para o agente dizer "pronto, li o arquivo".
+    """
+
+    skill: str
+    status: str
+    execution_id: str
+    summary: str = ""
+    reason: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.skill.strip():
+            raise InvalidLLMRequestError("skill não pode ser vazia")
+        if not self.status.strip():
+            raise InvalidLLMRequestError("status não pode ser vazio")
+
+
 type AgentInput = UserMessage | EventTrigger

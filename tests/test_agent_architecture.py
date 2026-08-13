@@ -5,10 +5,10 @@ existe nos outros: além de verificar a direção das dependências, este arquiv
 verifica **a ausência de caminho até a execução**.
 
 O ADR-0003 diz que o Agent Runtime nunca executa ações. Um comentário não
-sustenta isso; os testes de `test_no_path_from_the_agent_to_execution` sim. Os
-nomes `jarvis.skills`, `jarvis.tools`, `jarvis.mcp` e `jarvis.policy` ainda não
-existem — estão reservados de propósito, para que o dia em que a Fase 5 os criar
-e alguém os importar aqui, o teste falhe antes do merge.
+sustenta isso; os testes de `test_no_path_from_the_agent_to_execution` sim. Até a
+Fase 4 esses nomes eram apenas reservados; desde a Fase 5 `jarvis.policy`,
+`jarvis.skills`, `jarvis.tools` e `jarvis.execution` existem de verdade, e a
+proibição passou de precaução a fronteira em vigor.
 
 Diferença deliberada em relação ao Memory System: `jarvis.context`,
 `jarvis.memory` e `jarvis.events` **são** permitidos no Core do agente.
@@ -56,12 +56,14 @@ ALLOWED_JARVIS_IMPORTS = {
     "jarvis.memory",
 }
 
-# Nomes reservados dos componentes que executam ações. Não existem hoje; a
-# checagem é o que garante que continuem fora do alcance do agente.
+# Os componentes que executam ações. Desde a Fase 5 eles **existem**, e é por
+# isso que esta checagem passou a ter dentes: o que era reserva de nome agora é
+# uma fronteira real entre raciocinar e agir.
 EXECUTION_PACKAGES = {
     "jarvis.skills",
     "jarvis.tools",
     "jarvis.policy",
+    "jarvis.execution",
     "jarvis.mcp",
     "mcp",
 }

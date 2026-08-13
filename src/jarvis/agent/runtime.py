@@ -46,7 +46,13 @@ from jarvis.agent.importance import (
     assess,
     should_reason,
 )
-from jarvis.agent.input import AgentInput, EventSummary, EventTrigger, UserMessage
+from jarvis.agent.input import (
+    ActionResultSummary,
+    AgentInput,
+    EventSummary,
+    EventTrigger,
+    UserMessage,
+)
 from jarvis.agent.messages import LLMRequest, LLMResponse, StopReason, TokenUsage
 from jarvis.agent.ports import LLMProvider
 from jarvis.agent.prompt import Capability, PromptBuilder, ReasoningEnvelope
@@ -153,6 +159,7 @@ class AgentRuntime:
         conversation: Conversation | None = None,
         recent_events: tuple[EventSummary, ...] = (),
         capabilities: tuple[Capability, ...] = (),
+        last_action_result: ActionResultSummary | None = None,
     ) -> AgentTurn:
         now = self._clock()
         correlation_id = _correlation_id(agent_input)
@@ -188,6 +195,7 @@ class AgentRuntime:
             recent_events=recent_events,
             conversation=conversation,
             capabilities=capabilities,
+            last_action_result=last_action_result,
         )
         decision, response, latency_ms = self._reason(
             envelope, correlation_id=correlation_id, causation_id=causation_id, now=now

@@ -38,7 +38,13 @@ from jarvis.agent.importance import (
     assess,
     should_reason,
 )
-from jarvis.agent.input import AgentInput, EventSummary, EventTrigger, UserMessage
+from jarvis.agent.input import (
+    ActionResultSummary,
+    AgentInput,
+    EventSummary,
+    EventTrigger,
+    UserMessage,
+)
 from jarvis.agent.messages import (
     LLMModel,
     LLMRequest,
@@ -70,6 +76,7 @@ __all__ = [
     "DEFAULT_IMPORTANCE_WEIGHTS",
     "SYSTEM_INSTRUCTION",
     "ActionProposal",
+    "ActionResultSummary",
     "AgentInput",
     "AgentRuntime",
     "AgentTurn",

@@ -315,3 +315,102 @@ def test_building_the_same_envelope_twice_gives_the_same_prompt() -> None:
     fixed = envelope(memories=(make_retrieval_result(memory_id="m-1"),))
 
     assert PromptBuilder().build(fixed) == PromptBuilder().build(fixed)
+
+
+# --- capacidades e resultado da ação (Fase 5) --------------------------------
+
+
+def test_capabilities_carry_their_parameter_schema() -> None:
+    """Sem o schema, o modelo acerta o nome da skill e erra os campos."""
+    payload = build(
+        envelope(
+            capabilities=(
+                Capability(
+                    name="file.read",
+                    summary="Lê um arquivo.",
+                    parameters="path: string (obrigatório)",
+                ),
+            )
+        )
+    )
+
+    assert payload["available_capabilities"] == [
+        {
+            "name": "file.read",
+            "summary": "Lê um arquivo.",
+            "parameters": "path: string (obrigatório)",
+        }
+    ]
+    assert payload["constraints"]["capabilities_available"] is True
+
+
+def test_a_capability_without_a_schema_omits_the_field() -> None:
+    payload = build(envelope(capabilities=(Capability(name="x.y", summary="Faz algo."),)))
+
+    assert payload["available_capabilities"] == [{"name": "x.y", "summary": "Faz algo."}]
+
+
+def test_the_number_of_capabilities_respects_the_budget() -> None:
+    """Um registry grande não pode estourar o orçamento sem saída."""
+    capabilities = tuple(
+        Capability(name=f"skill.n{index}", summary="Faz algo.") for index in range(20)
+    )
+
+    payload = build(envelope(capabilities=capabilities), budget=PromptBudget(max_capabilities=5))
+
+    assert len(payload["available_capabilities"]) == 5
+    assert payload["constraints"]["omitted"]["capabilities"] == 15
+
+
+def test_capabilities_are_the_last_thing_cut() -> None:
+    """Cortar uma capacidade remove uma opção de ação: é pior que cortar contexto."""
+    payload = build(
+        envelope(
+            capabilities=(Capability(name="file.read", summary="Lê."),),
+            recent_events=tuple(
+                EventSummary(
+                    event_id=f"evt-{index}",
+                    event_type="email.received",
+                    source="gmail-watcher",
+                    occurred_at=NOON,
+                )
+                for index in range(10)
+            ),
+        ),
+        budget=PromptBudget(max_envelope_chars=1400),
+    )
+
+    assert payload["available_capabilities"]
+    assert payload["constraints"]["omitted"]["recent_events"] > 0
+    assert payload["constraints"]["omitted"]["capabilities"] == 0
+
+
+def test_the_last_action_result_enters_the_envelope_as_a_fact() -> None:
+    from jarvis.agent.input import ActionResultSummary
+
+    payload = build(
+        envelope(
+            last_action_result=ActionResultSummary(
+                skill="file.write",
+                status="denied",
+                execution_id="exec-1",
+                summary="Ação bloqueada pela política.",
+                reason="skill_denylisted",
+            )
+        )
+    )
+
+    assert payload["last_action_result"]["status"] == "denied"
+    assert payload["last_action_result"]["skill"] == "file.write"
+    assert payload["last_action_result"]["reason"] == "skill_denylisted"
+
+
+def test_the_section_is_absent_when_there_is_no_previous_action() -> None:
+    assert "last_action_result" not in build(envelope())
+
+
+def test_the_system_instruction_forbids_claiming_success_over_a_denial() -> None:
+    request = PromptBuilder().build(envelope())
+
+    assert "last_action_result" in request.system
+    assert "denied" in request.system
