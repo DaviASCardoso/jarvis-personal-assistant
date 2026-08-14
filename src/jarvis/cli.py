@@ -18,6 +18,7 @@ import json
 import logging
 import sys
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from jarvis.agent import (
     Capability,
     Conversation,
     ConversationTurn,
+    Decision,
     EventSummary,
     EventTrigger,
     GenerationDefaults,
@@ -135,6 +137,32 @@ DEFAULT_RECENT_EVENTS = 10
 # `(nenhum)` é "alguém observou que não há".
 ABSENT = "-"
 OBSERVED_ABSENCE = "(nenhum)"
+
+# Um `remember` puro não traz `message`: a decisão é "guardar isto", não "dizer
+# algo". Sem uma frase de confirmação o usuário veria a proposta e nenhum sinal
+# de que ela virou memória, e a conversa ficaria sem turno do assistente.
+REMEMBER_SAVED_MESSAGE = "Anotado."
+
+# Sem `reference` de propósito. Não há artefato durável para apontar: decisões
+# só viram trilha consultável na 7.4 e conversas só são persistidas na 6.4, e um
+# ponteiro que não resolve ainda custaria a consolidação — `find_duplicate` exige
+# a mesma `reference`, então cada repetição da mesma afirmação viraria linha
+# nova em vez de reforço. `USER` porque a afirmação é do usuário: o agente
+# apenas a extraiu da mensagem.
+USER_ASSERTION = Provenance(origin=MemoryOrigin.USER)
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryWrite:
+    """O desfecho de aplicar a proposta de memória de um turno.
+
+    Três estados, e os três precisam aparecer distintos na saída: nada proposto
+    (ambos `None`), gravada/reforçada (`stored`), ou recusada pelo domínio
+    (`rejected`) — "não gravei" e "não havia o que gravar" não são a mesma coisa.
+    """
+
+    stored: StoredMemory | None = None
+    rejected: str | None = None
 
 
 def configure_logging(level: LogLevel) -> None:
@@ -831,17 +859,35 @@ def _memory(args: argparse.Namespace, settings: Settings) -> int:
     return _memory_reindex(settings)
 
 
-def _print_turn(turn: AgentTurn) -> None:
+def _reply(decision: Decision, write: MemoryWrite) -> str | None:
+    """O que o agente tem a dizer ao usuário neste turno.
+
+    Um `remember` puro não traz `message`: sem a confirmação da gravação, o
+    turno ficaria mudo e a conversa, sem turno do assistente.
+    """
+    if decision.message is not None:
+        return decision.message
+    return REMEMBER_SAVED_MESSAGE if write.stored is not None else None
+
+
+def _print_turn(turn: AgentTurn, *, write: MemoryWrite) -> None:
     decision = turn.decision
     print(f"decision    {decision.type.value}")
     print(f"reason      {decision.reason}")
-    if decision.message is not None:
-        print(f"message     {decision.message}")
+    message = _reply(decision, write)
+    if message is not None:
+        print(f"message     {message}")
     if decision.memory is not None:
         proposal = decision.memory
         print(f"memory      {proposal.type.value}: {proposal.content}")
-        # Proposta, não escrita: nada é gravado nesta fase.
-        print("            (proposta; gravação de memória entra numa fase futura)")
+    if write.stored is not None:
+        # Reforço e criação são desfechos diferentes de `remember` (dedup por
+        # fingerprint); dizer "gravada" nos dois casos mentiria sobre qual id
+        # o usuário encontraria em `jarvis memory get`.
+        verb = "reforçada" if write.stored.reinforced_count else "gravada"
+        print(f"            {verb} como {write.stored.memory.memory_id}")
+    if write.rejected is not None:
+        print(f"            proposta recusada: {write.rejected}")
     if decision.action is not None:
         print(f"action      {decision.action.skill} {json.dumps(dict(decision.action.parameters))}")
         print("            proposta não executada: use --execute para submetê-la à política")
@@ -857,6 +903,47 @@ def _print_turn(turn: AgentTurn) -> None:
     print(f"llm         {'consultado' if turn.consulted_llm else 'não consultado'}")
     print(f"memories    {len(turn.used_memory_ids)}")
     print(f"correlation {decision.correlation_id}")
+
+
+def _persist_memory_proposal(
+    turn: AgentTurn, manager: MemoryManager, *, provenance: Provenance
+) -> MemoryWrite:
+    """Aplica a proposta de memória de um turno, se houver.
+
+    O Agent Runtime continua sem efeitos: quem lê a `Decision` e escreve é o
+    composition root, o mesmo desenho de `_submit_proposal`. A diferença é que
+    aqui não há `--execute`: gravar uma afirmação não é executar uma capacidade,
+    não toca nada fora do processo e é desfeita por supersessão — o Policy
+    Engine é autoridade sobre ações, não sobre o que o agente aprende
+    (ADR-0018).
+
+    Vale para qualquer decisão que carregue `memory`, não só `remember`: a
+    matriz de `decision.py` permite `notify` com proposta junto, e ignorá-la ali
+    perderia a memória sem motivo.
+
+    `MemoryProposal` é mais permissivo que `Memory` — não tem `scope` nem
+    `valid_until`, então uma proposta `task`, `working` ou `preference` sem
+    `subject` é sintaticamente válida e mesmo assim recusada pelo domínio. Isso
+    é recusa da proposta, não falha do turno: a mensagem e a ação da decisão
+    continuam valendo, e derrubar o comando por causa de um deslize do modelo
+    perderia as duas.
+    """
+    proposal = turn.decision.memory
+    if proposal is None:
+        return MemoryWrite()
+
+    try:
+        stored = manager.remember(
+            type=proposal.type,
+            content=proposal.content,
+            provenance=provenance,
+            importance=proposal.importance,
+            confidence=proposal.confidence,
+            subject=proposal.subject,
+        )
+    except InvalidMemoryError as error:
+        return MemoryWrite(rejected=str(error))
+    return MemoryWrite(stored=stored)
 
 
 def _prepared_context(
@@ -969,7 +1056,10 @@ def _agent_ask(args: argparse.Namespace, settings: Settings) -> int:
             recent_events=recent,
             capabilities=capabilities_from(skills),
         )
-        _print_turn(turn)
+        write = _persist_memory_proposal(
+            turn, build_memory_manager(memories), provenance=USER_ASSERTION
+        )
+        _print_turn(turn, write=write)
 
         if args.execute and turn.decision.proposes_action:
             outcome = _submit_proposal(
@@ -1000,6 +1090,7 @@ def _agent_chat(args: argparse.Namespace, settings: Settings) -> int:
             settings, context=_prepared_context(store, snapshots), memories=memories
         )
         recent = _recent_events(store)
+        manager = build_memory_manager(memories)
 
         for line in sys.stdin:
             text = line.strip()
@@ -1011,12 +1102,14 @@ def _agent_chat(args: argparse.Namespace, settings: Settings) -> int:
                 conversation=conversation,
                 recent_events=recent,
             )
-            _print_turn(turn)
+            write = _persist_memory_proposal(turn, manager, provenance=USER_ASSERTION)
+            _print_turn(turn, write=write)
             print()
             conversation = conversation.append(ConversationTurn(role=Role.USER, text=text, at=now))
-            if turn.decision.message is not None:
+            reply = _reply(turn.decision, write)
+            if reply is not None:
                 conversation = conversation.append(
-                    ConversationTurn(role=Role.ASSISTANT, text=turn.decision.message, at=now)
+                    ConversationTurn(role=Role.ASSISTANT, text=reply, at=now)
                 )
     return EXIT_OK
 
@@ -1039,7 +1132,15 @@ def _agent_react(args: argparse.Namespace, settings: Settings) -> int:
             recent_events=_recent_events(store),
             capabilities=capabilities_from(skills),
         )
-        _print_turn(turn)
+        # A afirmação não veio do usuário: veio do evento que disparou o turno.
+        # `event_id` é referência resolvível no Event Store — a mesma
+        # proveniência que o `MemoryEventConsumer` já grava.
+        write = _persist_memory_proposal(
+            turn,
+            build_memory_manager(memories),
+            provenance=Provenance(origin=MemoryOrigin.EVENT, reference=recorded.event.event_id),
+        )
+        _print_turn(turn, write=write)
 
         if args.execute and turn.decision.proposes_action:
             # `Actor.EVENT`: ninguém pediu isto. É o que faz uma skill

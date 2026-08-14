@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from jarvis import __version__, cli
-from jarvis.cli import main
+from jarvis.cli import REMEMBER_SAVED_MESSAGE, main
 from tests.agent_doubles import StubLLMProvider, decision_json
 
 
@@ -39,6 +39,16 @@ def emit(*args: str) -> int:
 def count_rows(data_dir: Path) -> int:
     with sqlite3.connect(data_dir / "events.db") as connection:
         return int(connection.execute("SELECT count(*) FROM events").fetchone()[0])
+
+
+def memory_rows(data_dir: Path) -> list[tuple[str, str, str, str | None]]:
+    """O que foi gravado, lido do banco e não do que o CLI imprimiu — imprimir
+    é o que estava certo antes de a gravação existir."""
+    with sqlite3.connect(data_dir / "memory.db") as connection:
+        rows = connection.execute(
+            "SELECT content, type, origin, subject FROM memories ORDER BY sequence"
+        ).fetchall()
+    return [(content, type_, origin, subject) for content, type_, origin, subject in rows]
 
 
 class TestBasics:
@@ -524,6 +534,177 @@ class TestAgent:
         out = capsys.readouterr().out
         assert "decision    notify" in out
         assert "tudo em ordem" in out
+
+    def test_ask_persists_a_memory_proposal_and_confirms(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        isolated_data_dir: Path,
+    ) -> None:
+        provider = StubLLMProvider(
+            [
+                decision_json(
+                    type="remember",
+                    message=None,
+                    memory={
+                        "type": "semantic",
+                        "content": "Davi tem 15 anos.",
+                        "subject": "profile.davi.age",
+                    },
+                )
+            ]
+        )
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+
+        assert main(["agent", "ask", "lembre que tenho 15 anos"]) == 0
+
+        out = capsys.readouterr().out
+        assert REMEMBER_SAVED_MESSAGE in out
+        assert "gravada como" in out
+        assert memory_rows(isolated_data_dir) == [
+            ("Davi tem 15 anos.", "semantic", "user", "profile.davi.age")
+        ]
+
+    def test_ask_saves_the_memory_carried_by_any_decision(
+        self, monkeypatch: pytest.MonkeyPatch, isolated_data_dir: Path
+    ) -> None:
+        """A matriz de `decision.py` só proíbe `memory` em `ignore`: um `notify`
+        pode trazer proposta junto, e descartá-la perderia a memória."""
+        provider = StubLLMProvider(
+            [
+                decision_json(
+                    type="notify",
+                    message="anotei e respondo",
+                    memory={
+                        "type": "preference",
+                        "content": "Davi prefere respostas curtas.",
+                        "subject": "preference.answer.length",
+                    },
+                )
+            ]
+        )
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+
+        assert main(["agent", "ask", "seja breve comigo"]) == 0
+
+        assert memory_rows(isolated_data_dir) == [
+            (
+                "Davi prefere respostas curtas.",
+                "preference",
+                "user",
+                "preference.answer.length",
+            )
+        ]
+
+    def test_ask_rejects_an_impossible_proposal_without_losing_the_turn(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        isolated_data_dir: Path,
+    ) -> None:
+        """`MemoryProposal` é mais permissivo que `Memory`: uma preferência sem
+        `subject` passa na decisão e é recusada pelo domínio. A recusa é da
+        proposta — a mensagem do agente continua valendo."""
+        provider = StubLLMProvider(
+            [
+                decision_json(
+                    type="notify",
+                    message="entendi",
+                    memory={"type": "preference", "content": "Davi prefere respostas curtas."},
+                )
+            ]
+        )
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+
+        assert main(["agent", "ask", "seja breve comigo"]) == 0
+
+        out = capsys.readouterr().out
+        assert "proposta recusada: preference memory precisa de subject" in out
+        assert "message     entendi" in out
+        assert memory_rows(isolated_data_dir) == []
+
+    def test_ask_reinforces_instead_of_duplicating(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        isolated_data_dir: Path,
+    ) -> None:
+        """Dizer a mesma coisa duas vezes reforça uma memória; não cria duas."""
+        provider = StubLLMProvider(
+            [
+                decision_json(
+                    type="remember",
+                    message=None,
+                    memory={"type": "semantic", "content": "Davi mora em Recife."},
+                )
+            ]
+        )
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+
+        assert main(["agent", "ask", "moro em Recife"]) == 0
+        capsys.readouterr()
+        assert main(["agent", "ask", "moro em Recife"]) == 0
+
+        assert "reforçada como" in capsys.readouterr().out
+        assert len(memory_rows(isolated_data_dir)) == 1
+
+    def test_chat_keeps_memory_confirmation_in_the_conversation(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Sem a confirmação, um `remember` puro deixaria a conversa sem turno
+        do assistente — e o próximo prompt sugeriria que o agente não respondeu."""
+        provider = StubLLMProvider(
+            [
+                decision_json(
+                    type="remember",
+                    message=None,
+                    memory={"type": "semantic", "content": "Davi prefere Python."},
+                ),
+                decision_json(type="notify", message="continuando"),
+            ]
+        )
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+        monkeypatch.setattr("sys.stdin", io.StringIO("lembre isto\ncontinue\n"))
+
+        assert main(["agent", "chat", "--conversation-id", "c-memory"]) == 0
+
+        assert REMEMBER_SAVED_MESSAGE in capsys.readouterr().out
+        second = json.loads(provider.requests[1].messages[0].content)
+        assert [turn["text"] for turn in second["conversation"]] == [
+            "lembre isto",
+            REMEMBER_SAVED_MESSAGE,
+        ]
+
+    def test_react_records_the_event_as_the_origin_of_the_memory(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        isolated_data_dir: Path,
+    ) -> None:
+        """Nada disto veio do usuário: a proveniência aponta para o evento, que
+        é a única referência resolvível depois."""
+        monkeypatch.setenv("JARVIS_AGENT_IMPORTANCE_THRESHOLD", "0.0")
+        provider = StubLLMProvider(
+            [
+                decision_json(
+                    type="remember",
+                    message=None,
+                    memory={"type": "episodic", "content": "Chegou um email sobre a reunião."},
+                )
+            ]
+        )
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+        emit("--key", "para-lembrar")
+        event_id = capsys.readouterr().out.splitlines()[0].split()[1]
+
+        assert main(["agent", "react", "--event-id", event_id]) == 0
+
+        assert memory_rows(isolated_data_dir) == [
+            ("Chegou um email sobre a reunião.", "episodic", "event", None)
+        ]
+        with sqlite3.connect(isolated_data_dir / "memory.db") as connection:
+            references = connection.execute("SELECT provenance_reference FROM memories").fetchall()
+        assert references == [(event_id,)]
 
     def test_ask_correlates_by_the_given_conversation(
         self, capsys: pytest.CaptureFixture[str]
