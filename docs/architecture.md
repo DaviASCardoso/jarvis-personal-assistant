@@ -38,12 +38,16 @@ e, paralelamente, uma conversa por voz que percorre o mesmo núcleo de
 raciocínio (`wake word → STT → agente → contexto+memória → decisão → ação →
 TTS`).
 
-**Estado atual (Fase 0 — Foundation):** nada disso existe como código ainda.
-`src/jarvis/` hoje é só `cli.py` (entry point) + `config.py` (`Settings`).
-Este documento descreve a arquitetura **alvo**, já aprovada como contrato na
-subfase 0.3, não uma implementação existente — cada seção abaixo indica em
-que fase do roadmap o componente correspondente passa a ter comportamento
-real.
+**Estado atual (Fases 0 a 5 concluídas):** a cadeia da esquerda para a direita
+existe em código — Event System, Context Engine, Memory System, Agent Runtime,
+Policy Engine, Skills, Tool Router e cliente MCP. O ciclo `evento → contexto →
+memória → raciocínio → decisão → política → skill → ferramenta → resultado →
+evento` roda de ponta a ponta pelo CLI.
+
+Segue sendo um documento de arquitetura **alvo**, aprovado como contrato na
+subfase 0.3: o que falta é voz (Fase 6), proatividade (Fase 7) e integração com
+o sistema operacional (Fase 8). Cada seção abaixo indica em que fase o
+componente correspondente passou — ou passará — a ter comportamento real.
 
 ---
 
@@ -69,7 +73,7 @@ flowchart TD
         MPROC["Procedural"]
     end
 
-    subgraph AGENT["Agent Runtime (Fase 4, implementado)"]
+    subgraph AGENT["Agent Runtime (Fase 4)"]
         LLM["LLM Provider (port) → Gemini"]
         REASON["Reasoning → Decision"]
     end
@@ -96,12 +100,11 @@ flowchart TD
 
     EXEC -.->|"Action Result → novo Event"| EVT
 
-    classDef future stroke-dasharray: 4 3
-    class EVT,CTX,MEM,AGENT,POLICY,EXEC future
 ```
 
-> Bordas tracejadas = componentes ainda não implementados (todo o diagrama,
-> na Fase 0). O diagrama espelha a seção "ARQUITETURA-ALVO" do
+> Todo o diagrama existe em código desde a Fase 5 — o que falta (voz,
+> proatividade, contexto do sistema operacional) não aparece aqui, e sim nas
+> seções 6 e 7. O diagrama espelha a seção "ARQUITETURA-ALVO" do
 > [ROADMAP.md](../ROADMAP.md), redesenhada para deixar explícito o ponto
 > central do [ADR-0003](adr/0003-policy-engine-safety-authority.md): o Agent
 > Runtime propõe (`Decision.act`), nunca executa — quem executa é

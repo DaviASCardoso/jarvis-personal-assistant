@@ -82,9 +82,13 @@ não existe um sétimo tipo `respond`.
 `Decision` é **dado inerte**: sem `execute()`, sem callback, sem referência a
 Skill. `test_a_decision_carries_no_executable_behaviour` verifica isso por
 introspecção, e `test_agent_architecture.py` verifica que nenhum módulo do
-pacote alcança `jarvis.skills`, `jarvis.tools`, `jarvis.mcp` ou `jarvis.policy`
-— nomes reservados que ainda não existem, justamente para que o dia em que
-existirem o teste já esteja de guarda.
+pacote alcança `jarvis.skills`, `jarvis.tools`, `jarvis.policy`,
+`jarvis.execution` ou `jarvis.mcp`. Os quatro primeiros eram nomes apenas
+reservados quando o teste foi escrito, na Fase 4, justamente para que ele
+estivesse de guarda no dia em que existissem — desde a Fase 5 existem, e o
+teste passou a ter dentes. `jarvis.mcp` segue sem existir de propósito: MCP é
+um backend do Tool Router (`tools/adapters/mcp_*.py`), não um componente de
+domínio.
 
 ## `LLMProvider`: o que um adapter precisa garantir
 
@@ -192,8 +196,9 @@ payload de evento, `message` da decisão ou credencial —
 `tests/test_agent_privacy.py` verifica isso em todos os caminhos, inclusive nos
 de erro.
 
-Cadeia reconstruível: `Event.correlation_id` → `Decision.correlation_id` →
-(Fase 5) `PolicyVerdict` → Skill → Tool.
+Cadeia reconstruível, e desde a Fase 5 percorrível de verdade com
+`jarvis events list --correlation-id <id>`: `Event.correlation_id` →
+`Decision.correlation_id` → `PolicyVerdict` → Skill → Tool.
 
 ## Configuração e secrets
 
