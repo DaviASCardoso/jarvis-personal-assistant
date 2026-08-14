@@ -67,6 +67,15 @@ REPAIR_HINT: Final = (
     "Responda de novo com apenas o objeto JSON, sem cercas e sem texto em volta."
 )
 
+# Truncamento não é erro de formato: o modelo escreveu JSON certo e ficou sem
+# orçamento antes de fechá-lo. Pedir "responda em JSON" bate na mesma parede e
+# gasta a mesma quota — o que falta é brevidade, não formato.
+TRUNCATION_HINT: Final = (
+    "Sua resposta anterior foi cortada por exceder o limite de tokens. "
+    "Responda de novo com o mesmo objeto JSON, mas seja breve: `reason` e "
+    "`message` em uma frase curta cada, sem repetir texto."
+)
+
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
@@ -307,6 +316,30 @@ class AgentRuntime:
 
             if response.stop_reason is StopReason.BLOCKED:
                 raise LLMInvalidResponseError("o provider bloqueou a resposta")
+
+            if response.stop_reason is StopReason.MAX_TOKENS:
+                # Diagnosticado aqui, e não no `except` abaixo, porque o sintoma
+                # ("não é JSON válido") esconderia a causa e mandaria a dica
+                # errada. Um JSON cortado no meio de uma string nunca volta
+                # válido por insistir no formato.
+                logger.warning(
+                    "agent.response_truncated",
+                    extra={
+                        "correlation_id": correlation_id,
+                        "response_chars": len(response.text),
+                        "max_output_tokens": self._generation.max_output_tokens,
+                        "repair_attempt": repair,
+                    },
+                )
+                if repair == self._max_repair_attempts:
+                    raise LLMInvalidResponseError(
+                        "a resposta do modelo foi cortada pelo limite de tokens, "
+                        "duas vezes; aumente JARVIS_LLM_MAX_OUTPUT_TOKENS ou troque "
+                        "JARVIS_GEMINI_MODEL — um modelo que se repete estoura "
+                        "qualquer orçamento"
+                    )
+                repair_hint = TRUNCATION_HINT
+                continue
 
             try:
                 decision = parse_decision(

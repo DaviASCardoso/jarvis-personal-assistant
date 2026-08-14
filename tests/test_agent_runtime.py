@@ -334,6 +334,38 @@ def test_a_blocked_response_is_an_invalid_response() -> None:
         handle(build_runtime(StubLLMProvider([blocked])))
 
 
+def _truncated() -> LLMResponse:
+    """JSON cortado no meio de uma string, como o provider realmente devolve."""
+    return LLMResponse(
+        text='{"type":"notify","reason":"ok","message":"aguarde aguarde aguar',
+        stop_reason=StopReason.MAX_TOKENS,
+        model=STUB_MODEL,
+    )
+
+
+def test_a_truncated_response_is_repaired_by_asking_for_brevity() -> None:
+    """Pedir formato a um JSON cortado bate na mesma parede: falta orçamento."""
+    llm = StubLLMProvider([_truncated(), decision_json(type="ignore", message=None)])
+
+    turn = handle(build_runtime(llm))
+
+    assert llm.calls == 2
+    assert turn.decision.type is DecisionType.IGNORE
+    assert "cortada" in llm.requests[1].messages[-1].content
+    assert "objeto JSON válido" not in llm.requests[1].messages[-1].content
+
+
+def test_a_persistently_truncated_response_names_the_token_limit() -> None:
+    """O erro precisa nomear a causa: "não é JSON válido" mandaria o usuário
+    procurar defeito de formato onde só falta orçamento de saída."""
+    llm = StubLLMProvider([_truncated(), _truncated()])
+
+    with pytest.raises(LLMInvalidResponseError, match="cortada pelo limite de tokens"):
+        handle(build_runtime(llm))
+
+    assert llm.calls == 2
+
+
 # --- falhas de provider ------------------------------------------------------
 
 
