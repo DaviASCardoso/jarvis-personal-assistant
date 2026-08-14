@@ -43,15 +43,25 @@ Esta pasta reúne a documentação técnica do Jarvis.
   Tools que existe em `src/jarvis/tools/` desde a Fase 5 (contrato de `Tool`,
   Tool Router, registry e descoberta, backend local, cliente MCP sobre stdio,
   `mcp.json`, normalização de erros).
+- [`voice.md`](voice.md) — **documentação de implementação**: descreve a camada
+  de voz que existe em `src/jarvis/voice/` desde a Fase 6 (os sete ports, as duas
+  estratégias de wake word sem IA local, VAD determinístico, STT/TTS em nuvem por
+  REST da stdlib, sessão com retenção, interrupção, o que sai do dispositivo,
+  comandos de CLI e limitações conhecidas).
+- [`interface.md`](interface.md) — **documentação de implementação**: descreve o
+  painel de observabilidade que existe em `src/jarvis/interface/` desde a Fase 6
+  (view models, contrato de `/api/state`, as duas cadências de atualização,
+  modelo de threads, por que é somente leitura, toasts e privacidade).
 - [`security.md`](security.md) — **documentação de implementação**: descreve o
   Policy Engine e a camada de execução que existem em `src/jarvis/policy/` e
   `src/jarvis/execution/` desde a Fase 5 (regras e composição por força,
   `PolicyApproval` de uso único, fluxo de confirmação, menor privilégio em três
   camadas, as cinco impossibilidades, auditoria, secrets).
 - [`phase-1-plan.md`](phase-1-plan.md), [`phase-2-plan.md`](phase-2-plan.md),
-  [`phase-3-plan.md`](phase-3-plan.md), [`phase-4-plan.md`](phase-4-plan.md) e
-  [`phase-5-plan.md`](phase-5-plan.md) — os planos técnicos aprovados que
-  guiaram as Fases 1 a 5, incluindo as decisões consideradas e as descartadas.
+  [`phase-3-plan.md`](phase-3-plan.md), [`phase-4-plan.md`](phase-4-plan.md),
+  [`phase-5-plan.md`](phase-5-plan.md) e [`phase-6-plan.md`](phase-6-plan.md) —
+  os planos técnicos aprovados que guiaram as Fases 1 a 6, incluindo as decisões
+  consideradas e as descartadas.
 
 ## Contratos vs. documentação de implementação
 

@@ -244,13 +244,38 @@ efetiva — ela não deve ser adivinhada.
 
 Nada disso é preferência do usuário (ADR-0006): preferências vivem em Memory.
 
+## O que a Fase 6 acrescentou
+
+Duas credenciais novas (`JARVIS_GROQ_API_KEY`, `JARVIS_GOOGLE_TTS_API_KEY`), com
+as mesmas três regras das anteriores: `SecretStr`, lidas **só** no composition
+root, e sempre em header — nunca em query string, log, evento ou memória. Um
+teste varre a AST atrás de `get_secret_value` fora de `cli.py`.
+
+Duas fronteiras novas, e as duas são de leitura:
+
+- **A voz não alcança execução.** Uma ação proposta por voz percorre exatamente a
+  mesma cadeia de uma digitada, inclusive a confirmação, que continua publicando
+  evento e **reavaliando a política do zero**. `jarvis.voice` não importa
+  `jarvis.execution` nem `jarvis.policy`, e um teste garante isso.
+- **O painel não executa nada.** Nenhuma rota de escrita existe: `POST`, `PUT`,
+  `DELETE` e `PATCH` respondem 405 em qualquer caminho, e o bind é fixo em
+  loopback ([ADR-0024](adr/0024-observability-panel-as-snapshot-reader.md)).
+
+Privacidade: áudio nunca é gravado em disco, transcrição nunca entra em evento
+([ADR-0025](adr/0025-voice-transcripts-as-operational-state.md)), e o painel
+nunca ecoa o payload de um evento de fonte externa. O que **sai** do dispositivo
+está tabelado em [voice.md §8](voice.md).
+
 ## Limitações conhecidas
 
 - O ledger de aprovações não sobrevive ao processo. É a decisão, não um defeito.
 - Não há proteção contra código malicioso **dentro** do processo: quem edita
   `jarvis/policy/engine.py` pode tudo. Nenhum mecanismo em processo poderia
   prometer outra coisa.
-- O canal de confirmação é o CLI; notificação real é a 7.3.
+- O canal de confirmação é o CLI e a voz; notificação real é a 7.3.
+- Com a voz ligada, áudio do usuário sai do dispositivo para dois serviços de
+  nuvem. É contrapartida declarada, não descuido — ver
+  [ADR-0022](adr/0022-cloud-speech-over-stdlib-rest.md).
 - Não há revogação de aprovação em voo — o TTL curto é o que limita a janela.
 
 ## Documentos relacionados

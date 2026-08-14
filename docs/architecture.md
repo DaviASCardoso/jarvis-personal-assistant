@@ -38,16 +38,18 @@ e, paralelamente, uma conversa por voz que percorre o mesmo núcleo de
 raciocínio (`wake word → STT → agente → contexto+memória → decisão → ação →
 TTS`).
 
-**Estado atual (Fases 0 a 5 concluídas):** a cadeia da esquerda para a direita
+**Estado atual (Fases 0 a 6 concluídas):** a cadeia da esquerda para a direita
 existe em código — Event System, Context Engine, Memory System, Agent Runtime,
 Policy Engine, Skills, Tool Router e cliente MCP. O ciclo `evento → contexto →
 memória → raciocínio → decisão → política → skill → ferramenta → resultado →
-evento` roda de ponta a ponta pelo CLI.
+evento` roda de ponta a ponta pelo CLI. Desde a Fase 6 o segundo ciclo do
+critério de v0.1 também roda: `wake word → STT → agente → contexto + memória →
+decisão → ação → TTS`, com um painel local mostrando tudo isso acontecer.
 
 Segue sendo um documento de arquitetura **alvo**, aprovado como contrato na
-subfase 0.3: o que falta é voz (Fase 6), proatividade (Fase 7) e integração com
-o sistema operacional (Fase 8). Cada seção abaixo indica em que fase o
-componente correspondente passou — ou passará — a ter comportamento real.
+subfase 0.3: o que falta é proatividade (Fase 7) e integração com o sistema
+operacional (Fase 8). Cada seção abaixo indica em que fase o componente
+correspondente passou — ou passará — a ter comportamento real.
 
 ---
 
@@ -122,7 +124,8 @@ flowchart TD
 | Skills | capacidades de alto nível com risco/permissão próprios | 5 | [skills.md](skills.md) |
 | Tool Router + MCP | roteia chamadas de Skill até a ferramenta externa | 5 | [mcp.md](mcp.md) |
 | Action Execution | percorre a cadeia `Decision → Policy → Skill → Tool`; único que conhece os três | 5 | [security.md](security.md) |
-| Voice Interface | wake word → STT → Agent Runtime → TTS | 6 | ver §7 abaixo |
+| Voice Interface | wake word → STT → Agent Runtime → TTS | 6 | [voice.md](voice.md) |
+| Observability Interface | projeta o estado interno do sistema; somente leitura | 6 | [interface.md](interface.md) |
 | Notification System | entrega mensagens ao usuário com prioridade | 5/7 | [security.md](security.md) (confirmação), §6 abaixo (proatividade) |
 
 Cada componente tem seu contrato completo (entradas, saídas, o que pode/não
@@ -278,19 +281,40 @@ proativa existe antes da Fase 7.
 
 ---
 
-## 7. Voz (conceito, não implementado — Fase 6)
+## 7. Voz e painel (Fase 6)
 
 ```text
-Wake Word → STT → Agent Runtime → TTS
+Microfone → Wake Word → STT → Agent Runtime → TTS → Alto-falante
+                                    │
+                                    └──► Painel (somente leitura)
 ```
 
 A Voice Interface é uma **Interface** (no sentido de Ports & Adapters, §3):
 aciona o Agent Runtime como qualquer outro ponto de entrada (ex. o CLI),
 sem conhecer Skills, Tools, MCP ou os internals de Memory/Context — ver
 [`architecture-contracts.md §3.9`](architecture-contracts.md#39-voice-interface).
-Wake word detection, STT e TTS são ports de Infrastructure; qual provider
-concreto implementa cada um é decisão da Fase 6, ainda em aberto — nenhum
-provider de STT/TTS está escolhido neste documento.
+
+Desde a Fase 6 isso existe em código, com uma fronteira ainda mais estrita do
+que o contrato exige: `jarvis.voice` não importa nem `jarvis.agent`. O resto do
+sistema chega por um port próprio (`ConversationalAgent`) implementado no
+composition root, o que torna o loop inteiro testável sem LLM, sem banco e sem
+hardware.
+
+Os providers concretos: **Groq** para transcrição e **Google Cloud TTS** para
+síntese, ambos por REST da biblioteca padrão
+([ADR-0022](adr/0022-cloud-speech-over-stdlib-rest.md)); wake word **sem IA
+local**, por push-to-talk ou por verificação em transcrição com orçamento
+([ADR-0021](adr/0021-wake-word-without-local-ai.md)). Detalhe completo em
+[voice.md](voice.md).
+
+O **painel de observabilidade** (`jarvis.interface`) é a outra metade da fase: um
+leitor de `PanelSnapshot`, servido em `127.0.0.1`, **sem nenhuma rota de
+escrita** ([ADR-0024](adr/0024-observability-panel-as-snapshot-reader.md)). Ele
+mostra eventos, contexto, memórias, decisões, ações, ferramentas e a conversa —
+e não aciona nada. Detalhe completo em [interface.md](interface.md).
+
+`jarvis run` sobe os dois no mesmo processo, com uma única thread tocando banco
+([ADR-0023](adr/0023-single-resident-process.md)).
 
 ---
 
@@ -340,4 +364,5 @@ infraestrutura ainda. Detalhe completo:
 - Por componente: [event-system.md](event-system.md) ·
   [context-system.md](context-system.md) · [memory-system.md](memory-system.md) ·
   [agent-runtime.md](agent-runtime.md) · [skills.md](skills.md) ·
-  [mcp.md](mcp.md) · [security.md](security.md)
+  [mcp.md](mcp.md) · [security.md](security.md) · [voice.md](voice.md) ·
+  [interface.md](interface.md)

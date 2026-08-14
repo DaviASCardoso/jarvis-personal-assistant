@@ -328,6 +328,22 @@ O único teste que toca a API real é `tests/test_agent_smoke_external.py`,
 marcado `external` e excluído por `addopts`. Os demais usam `StubLLMProvider`,
 `FailingLLMProvider` e `RecordingOpener` (`tests/agent_doubles.py`).
 
+## O segundo acionador (Fase 6)
+
+Desde a Fase 6 o Agent Runtime tem um segundo ponto de entrada — a voz — e
+**nenhuma linha deste componente mudou por causa disso**. `VoiceLoop` entrega
+texto a um port próprio da camada de voz (`ConversationalAgent`), que o
+composition root implementa chamando `runtime.handle(UserMessage(...))` com a
+`Conversation` montada a partir da sessão.
+
+Dois efeitos colaterais que o runtime ganhou de graça: o campo `conversation` do
+`CurrentContext` passou a ser preenchido (pelos eventos de sessão), então o
+prompt agora sabe que há uma conversa por voz em andamento; e
+`ActionResultSummary` — que já existia para `agent ask --execute` — é o mesmo
+caminho pelo qual a voz relata o desfecho de uma ação.
+
+Ver [voice.md](voice.md).
+
 ## Documentos relacionados
 
 - Contrato normativo: [architecture-contracts.md §3.4](architecture-contracts.md#34-agent-runtime)

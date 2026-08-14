@@ -251,6 +251,15 @@ código deve rejeitar qualquer import que a viole.
 - **Dependências proibidas:** Skills, Tools, MCP, Memory/Context diretamente.
 - **Responsável:** Voice Interface.
 
+> **Implementado na Fase 6, com uma fronteira mais estrita que a permitida
+> acima.** `jarvis.voice` importa de `jarvis` apenas `jarvis.errors` — nem
+> `jarvis.agent`. O Agent Runtime chega por um port próprio da camada de voz,
+> `ConversationalAgent`, implementado no composition root. O contrato permitiria
+> o acoplamento direto; o port é mais forte (o loop fica testável sem LLM) e
+> custa dois métodos. Ver [`voice.md`](voice.md) e
+> [ADR-0021](adr/0021-wake-word-without-local-ai.md) a
+> [ADR-0025](adr/0025-voice-transcripts-as-operational-state.md).
+
 ### 3.10 Notification System
 - **Responsabilidade:** entregar mensagens ao usuário (desktop, voz,
   silencioso) com prioridade; usado tanto para notificação proativa quanto
@@ -306,6 +315,30 @@ código deve rejeitar qualquer import que a viole.
 - **Proibido:** ser consultada ad hoc por código de Core/Application em vez
   de receber a configuração já injetada.
 - **Responsável:** Configuration.
+
+### 3.14 Observability Interface
+
+> Acrescentado na Fase 6. Os contratos acima descrevem componentes que **fazem**
+> coisas; este descreve o único que só **mostra**. Ver
+> [ADR-0024](adr/0024-observability-panel-as-snapshot-reader.md).
+
+- **Responsabilidade:** projetar o estado interno do sistema — eventos, contexto,
+  memórias, decisões, ações, ferramentas e conversa — numa representação que uma
+  pessoa consegue ler, e servi-la localmente.
+- **Permitido conhecer:** **tipos de domínio** de outros componentes
+  (`RecordedEvent`, `CurrentContext`, `StoredMemory`, `PendingAction`,
+  `VoiceSession`) e funções de leitura injetadas pelo Composition Root.
+- **Proibido conhecer:** Agent Runtime, Policy, Skills, Tool Router, o
+  orquestrador de execução, qualquer adapter de outro componente, `Settings` e
+  qualquer driver de banco.
+- **Entradas:** funções de leitura + estado ao vivo da sessão de voz.
+- **Saídas:** `PanelSnapshot` (view models imutáveis) e sua serialização.
+- **Regra crítica:** **somente leitura**. Nenhuma rota, comando ou método desta
+  camada inicia ação, confirma execução ou escreve em qualquer store. Confirmar
+  uma ação continua sendo assunto do CLI (§10.2) e da voz — uma rota de escrita
+  aqui seria um segundo caminho até uma Tool, fora do único autorizado
+  ([ADR-0016](adr/0016-action-execution-orchestrator.md)).
+- **Responsável:** Observability Interface.
 
 ---
 
@@ -647,6 +680,22 @@ consequências completas:
   único caminho até uma Skill (Fase 5).
 - [ADR-0017](adr/0017-audit-trail-as-events.md) — Trilha de auditoria como
   eventos, sem store de auditoria próprio (Fase 5).
+- [ADR-0018](adr/0018-memory-writes-outside-the-policy-engine.md) — Proposta de
+  memória aplicada pelo composition root (Fase 5).
+- [ADR-0019](adr/0019-gemini-action-parameters-as-json-text.md) —
+  `action.parameters` como texto JSON no adapter Gemini (Fase 5).
+- [ADR-0020](adr/0020-audio-io-ports-and-optional-backend.md) — Áudio como
+  ports, com backend em extra opcional (Fase 6).
+- [ADR-0021](adr/0021-wake-word-without-local-ai.md) — Wake word sem IA local
+  (Fase 6).
+- [ADR-0022](adr/0022-cloud-speech-over-stdlib-rest.md) — STT e TTS em nuvem por
+  REST da stdlib, com ports separados por papel (Fase 6).
+- [ADR-0023](adr/0023-single-resident-process.md) — Um processo residente para
+  voz e painel (Fase 6).
+- [ADR-0024](adr/0024-observability-panel-as-snapshot-reader.md) — Painel como
+  leitor de snapshot, somente leitura (Fase 6).
+- [ADR-0025](adr/0025-voice-transcripts-as-operational-state.md) — Transcrição
+  como estado operacional, nunca como evento (Fase 6).
 
 Decisões de campo-a-campo (schema exato de Event/Context/Memory, nomes
 exatos da taxonomia de erro) **não** viram ADR — são detalhe de contrato,

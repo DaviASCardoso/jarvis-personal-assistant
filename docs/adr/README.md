@@ -83,3 +83,9 @@ original fazia sentido no momento em que foi tomada.
 | [0017](0017-audit-trail-as-events.md) | Trilha de auditoria como eventos, sem store de auditoria próprio | Accepted |
 | [0018](0018-memory-writes-outside-the-policy-engine.md) | Proposta de memória aplicada pelo composition root, fora do Policy Engine | Accepted |
 | [0019](0019-gemini-action-parameters-as-json-text.md) | `action.parameters` transportado como texto JSON no adapter Gemini | Accepted |
+| [0020](0020-audio-io-ports-and-optional-backend.md) | Captura e reprodução de áudio como ports, com backend em extra opcional | Accepted |
+| [0021](0021-wake-word-without-local-ai.md) | Wake word sem IA local: gate determinístico e verificação por transcrição | Accepted |
+| [0022](0022-cloud-speech-over-stdlib-rest.md) | STT e TTS em nuvem por REST da stdlib, com ports separados por papel | Accepted |
+| [0023](0023-single-resident-process.md) | `jarvis run`: um processo residente para voz e painel | Accepted |
+| [0024](0024-observability-panel-as-snapshot-reader.md) | Painel de observabilidade como leitor de snapshot, somente leitura | Accepted |
+| [0025](0025-voice-transcripts-as-operational-state.md) | Transcrição de voz como estado operacional, nunca como evento | Accepted |
