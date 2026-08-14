@@ -13,9 +13,11 @@ Payload de um tipo assinado que não bate com o esperado é `InvalidContextError
 retry, porque repetir produziria exatamente o mesmo erro. O evento continua no
 Event Store — o fato não se perde.
 
-Três tipos, não dez: é o menor conjunto que demonstra substituição de valor,
-ausência observada e idempotência. Agenda, localização, conversa e tarefa
-pertencem às fases que trouxerem as fontes correspondentes.
+Cinco tipos, não dez: cada um existe porque há uma fonte real que o produz. Os
+três primeiros vieram da Fase 2 e demonstram substituição de valor, ausência
+observada e idempotência; os dois de voz chegaram na Fase 6, que é a fase que
+trouxe a fonte de conversa que o campo `conversation` esperava desde então.
+Agenda, localização e tarefa continuam pendentes das suas.
 """
 
 import logging
@@ -64,10 +66,27 @@ def _activity_ended(event: Event) -> ContextUpdate:
     return ContextUpdate(activity=_observed(event, ended))
 
 
+def _voice_session_started(event: Event) -> ContextUpdate:
+    session_id = require_label(event.payload.get("session_id"), field_name="payload.session_id")
+    return ContextUpdate(conversation=_observed(event, session_id))
+
+
+def _voice_session_ended(event: Event) -> ContextUpdate:
+    # Ausência **observada**, como em `user.activity_ended`: a conversa acabou, o
+    # que é diferente de nunca ter havido uma.
+    ended: str | None = None
+    return ContextUpdate(conversation=_observed(event, ended))
+
+
 _TRANSLATIONS: Final[Mapping[str, Callable[[Event], ContextUpdate]]] = {
     "user.availability_changed": _availability_changed,
     "user.activity_started": _activity_started,
     "user.activity_ended": _activity_ended,
+    # A Fase 6 é a fase que trouxe a fonte de conversa, que o campo esperava
+    # desde a Fase 2. O payload carrega só a identidade da sessão — transcrição
+    # nunca entra em evento (ADR-0025).
+    "voice.session_started": _voice_session_started,
+    "voice.session_ended": _voice_session_ended,
 }
 
 CONTEXT_EVENT_TYPES: Final = frozenset(_TRANSLATIONS)

@@ -51,6 +51,9 @@ def test_the_subscribed_types_are_exactly_what_can_be_translated() -> None:
         "user.availability_changed",
         "user.activity_started",
         "user.activity_ended",
+        # A Fase 6 trouxe a fonte de conversa que o campo esperava desde a Fase 2.
+        "voice.session_started",
+        "voice.session_ended",
     }
 
     assert set(CONTEXT_EVENT_TYPES) == translated
@@ -96,6 +99,39 @@ class TestTranslation:
         # Fato positivo com proveniência, não apagamento do campo.
         assert current.value is None
         assert current.source == "event:user.activity_ended"
+
+    def test_a_voice_session_fills_the_conversation_field(self) -> None:
+        consumer, aggregator = build()
+
+        deliver(consumer, "voice.session_started", {"session_id": "s-1"})
+
+        active = aggregator.get_current_context().conversation.active_id
+        assert active is not None
+        assert active.value == "s-1"
+        assert active.source == "event:voice.session_started"
+
+    def test_ending_a_session_records_an_observed_absence(self) -> None:
+        consumer, aggregator = build()
+        deliver(consumer, "voice.session_started", {"session_id": "s-1"})
+
+        deliver(
+            consumer,
+            "voice.session_ended",
+            {"session_id": "s-1"},
+            occurred_at=LATER,
+            event_id="e-2",
+        )
+
+        active = aggregator.get_current_context().conversation.active_id
+        assert active is not None
+        # "a conversa acabou" não é a mesma coisa que "nunca houve conversa".
+        assert active.value is None
+
+    def test_a_session_event_without_an_id_is_refused(self) -> None:
+        consumer, _ = build()
+
+        with pytest.raises(InvalidContextError):
+            deliver(consumer, "voice.session_started", {})
 
     def test_observed_at_comes_from_occurred_at_not_recorded_at(self) -> None:
         consumer, aggregator = build()

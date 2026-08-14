@@ -9,6 +9,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 Environment = Literal["development", "test", "production"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 LLMProviderName = Literal["gemini"]
+SttProviderName = Literal["groq"]
+TtsProviderName = Literal["google"]
+WakeStrategy = Literal["push_to_talk", "transcription"]
 
 
 class Settings(BaseSettings):
@@ -68,6 +71,68 @@ class Settings(BaseSettings):
 
     # Ausente = nenhum MCP Server. Todo o resto do sistema funciona sem.
     mcp_config_path: Path | None = None
+
+    # --- Fase 6: voz ------------------------------------------------------
+    # Três credenciais agora, todas `SecretStr`, todas lidas só no composition
+    # root. Sem elas os comandos de voz falham de forma explícita; todo o resto
+    # do sistema continua funcionando.
+    stt_provider: SttProviderName = "groq"
+    groq_api_key: SecretStr | None = None
+    stt_model: str = "whisper-large-v3-turbo"
+    # Vazio = deixa o provider detectar o idioma.
+    stt_language: str = "pt"
+    stt_timeout_seconds: float = 30.0
+    stt_max_attempts: int = 2
+    # Teto de transcrições por minuto no modo de wake word por transcrição. É o
+    # que impede uma TV ligada de consumir a quota inteira.
+    stt_wake_budget_per_minute: int = 12
+
+    tts_provider: TtsProviderName = "google"
+    google_tts_api_key: SecretStr | None = None
+    tts_voice: str = "pt-BR-Neural2-B"
+    tts_language: str = "pt-BR"
+    tts_speaking_rate: float = 1.0
+    tts_sample_rate: int = 24_000
+    tts_timeout_seconds: float = 15.0
+    tts_max_chars: int = 1200
+
+    # `push_to_talk` é o default: custo zero e nenhum áudio saindo do
+    # dispositivo antes de o usuário pedir.
+    wake_strategy: WakeStrategy = "push_to_talk"
+    wake_phrases: str = "jarvis"
+    wake_max_edit_distance: int = 1
+
+    # Vazio = dispositivo padrão do sistema operacional.
+    voice_input_device: str = ""
+    voice_output_device: str = ""
+    voice_sample_rate: int = 16_000
+    voice_barge_in: bool = True
+    # Mais alto que o limiar do VAD: sem fone, o alto-falante alimenta o microfone.
+    voice_barge_in_rms: float = 0.06
+    # 0 desliga o expurgo automático de transcrições.
+    voice_retention_days: int = 7
+    # Opt-in, como o `--execute` de `agent ask`: a voz não pode ser mais
+    # permissiva que o terminal só porque é mais conveniente.
+    voice_execute_actions: bool = False
+
+    vad_rms_threshold: float = 0.02
+    vad_min_speech_ms: int = 300
+    vad_silence_ms: int = 800
+    vad_max_utterance_seconds: float = 20.0
+
+    voice_follow_up_seconds: float = 12.0
+    voice_idle_timeout_seconds: float = 45.0
+    voice_max_turns: int = 40
+
+    # --- Fase 6: painel ---------------------------------------------------
+    # Loopback fixo: expor o painel na rede exigiria autenticação, que é
+    # multiusuário e está fora do escopo desta fase.
+    panel_host: str = "127.0.0.1"
+    panel_port: int = 8765
+    panel_refresh_seconds: float = 2.0
+    panel_timeline_limit: int = 50
+    panel_memory_limit: int = 10
+    panel_open_browser: bool = False
 
 
 def load_settings() -> Settings:

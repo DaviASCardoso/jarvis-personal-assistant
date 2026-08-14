@@ -75,7 +75,10 @@ class ScheduleContext:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ConversationContext:
-    active_id: Observation[str] | None = None
+    # `str | None` pelo mesmo motivo de `ActivityContext.current`: desde a Fase 6
+    # existe uma fonte que afirma **o fim** de uma conversa (`voice.session_ended`),
+    # e "acabou" não é a mesma coisa que "nunca houve".
+    active_id: Observation[str | None] | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -112,7 +115,7 @@ class ContextUpdate:
     device_id: Observation[str] | None = None
     activity: Observation[str | None] | None = None
     next_entry_at: Observation[datetime] | None = None
-    conversation: Observation[str] | None = None
+    conversation: Observation[str | None] | None = None
     task: Observation[str] | None = None
 
     def is_empty(self) -> bool:

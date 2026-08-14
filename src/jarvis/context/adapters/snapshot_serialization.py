@@ -188,7 +188,9 @@ def decode_context(raw: object) -> CurrentContext:
         device=DeviceContext(device_id=_as_text(found.get(ContextField.DEVICE_ID))),
         activity=ActivityContext(current=_as_optional_text(found.get(ContextField.ACTIVITY))),
         schedule=ScheduleContext(next_entry_at=_as_moment(found.get(ContextField.NEXT_ENTRY_AT))),
-        conversation=ConversationContext(active_id=_as_text(found.get(ContextField.CONVERSATION))),
+        conversation=ConversationContext(
+            active_id=_as_optional_text(found.get(ContextField.CONVERSATION))
+        ),
         task=TaskContext(active_id=_as_text(found.get(ContextField.TASK))),
     )
 

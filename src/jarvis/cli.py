@@ -17,9 +17,10 @@ import argparse
 import json
 import logging
 import sys
-from collections.abc import Sequence
-from dataclasses import dataclass
-from datetime import UTC, datetime
+import time
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from jarvis import __version__
@@ -85,6 +86,15 @@ from jarvis.execution import (
 from jarvis.execution.adapters.event_audit import EventAuditLog
 from jarvis.execution.adapters.sqlite_actions import SqliteActionRepository
 from jarvis.execution.events import CONFIRMATION_EVENT_TYPES
+from jarvis.interface import (
+    InterfaceError,
+    LiveState,
+    ObservabilityService,
+    PanelSnapshot,
+    TurnTrace,
+    VoiceStatusView,
+)
+from jarvis.interface.adapters.http_panel import PanelServer, open_browser
 from jarvis.memory import (
     InvalidMemoryError,
     MemoryCriteria,
@@ -125,6 +135,37 @@ from jarvis.tools.adapters.local_backend import LocalToolBackend
 from jarvis.tools.adapters.mcp_client import McpToolBackend
 from jarvis.tools.adapters.mcp_config import load_mcp_config
 from jarvis.tools.errors import ToolConfigurationError
+from jarvis.voice import (
+    AgentReply,
+    AudioDeviceError,
+    AudioError,
+    AudioFormat,
+    AudioSink,
+    AudioSource,
+    InvalidVoiceInputError,
+    SpeechToText,
+    SpeechToTextError,
+    SttAuthenticationError,
+    TextToSpeechError,
+    TtsAuthenticationError,
+    VoiceError,
+    VoiceLoop,
+    VoiceRepositoryError,
+    VoiceSession,
+    VoiceSettings,
+    VoiceStatus,
+    WakeWordDetector,
+    parse_phrases,
+)
+from jarvis.voice.adapters.google_tts import GoogleCloudTextToSpeech
+from jarvis.voice.adapters.groq_stt import GroqSpeechToText
+from jarvis.voice.adapters.retry import RetryPolicy
+from jarvis.voice.adapters.sqlite_sessions import SqliteVoiceSessionRepository
+from jarvis.voice.adapters.wake_push_to_talk import PushToTalkWakeWord, StdinTrigger
+from jarvis.voice.adapters.wake_transcription import TranscriptionWakeWord
+from jarvis.voice.adapters.wave_io import decode_wav, encode_wav
+from jarvis.voice.session import SessionSettings
+from jarvis.voice.vad import VadSettings
 
 EXIT_OK = 0
 EXIT_INFRASTRUCTURE_ERROR = 1
@@ -150,6 +191,14 @@ REMEMBER_SAVED_MESSAGE = "Anotado."
 # nova em vez de reforço. `USER` porque a afirmação é do usuário: o agente
 # apenas a extraiu da mensagem.
 USER_ASSERTION = Provenance(origin=MemoryOrigin.USER)
+
+# Os dois únicos eventos que a voz produz, e nenhum deles carrega uma palavra do
+# que foi dito. `source` é do composition root porque é ele quem publica — a
+# camada de voz não conhece o Event System.
+VOICE_SOURCE = "jarvis-voice"
+VOICE_SESSION_STARTED = "voice.session_started"
+VOICE_SESSION_ENDED = "voice.session_ended"
+VOICE_EVENT_TYPES = frozenset({VOICE_SESSION_STARTED, VOICE_SESSION_ENDED})
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,6 +398,407 @@ def capabilities_from(skills: SkillRegistry) -> tuple[Capability, ...]:
     )
 
 
+def voice_store_path(settings: Settings) -> Path:
+    """Quinto banco: transcrições de voz, estado operacional com retenção."""
+    return settings.data_dir / "voice.db"
+
+
+def build_stt(settings: Settings) -> GroqSpeechToText:
+    """Único lugar que lê a credencial da Groq."""
+    if settings.groq_api_key is None:
+        raise SttAuthenticationError("JARVIS_GROQ_API_KEY não configurada; veja .env.example")
+    return GroqSpeechToText(
+        api_key=settings.groq_api_key.get_secret_value(),
+        model=settings.stt_model,
+        retry=RetryPolicy(max_attempts=settings.stt_max_attempts),
+    )
+
+
+def build_tts(settings: Settings) -> GoogleCloudTextToSpeech:
+    """Único lugar que lê a credencial do Google Cloud TTS."""
+    if settings.google_tts_api_key is None:
+        raise TtsAuthenticationError("JARVIS_GOOGLE_TTS_API_KEY não configurada; veja .env.example")
+    return GoogleCloudTextToSpeech(
+        api_key=settings.google_tts_api_key.get_secret_value(),
+        voice=settings.tts_voice,
+        language=settings.tts_language,
+        speaking_rate=settings.tts_speaking_rate,
+        sample_rate=settings.tts_sample_rate,
+        max_chars=settings.tts_max_chars,
+    )
+
+
+def build_audio_io(settings: Settings) -> tuple[AudioSource, AudioSink]:
+    """Microfone e alto-falante.
+
+    O import é **tardio** de propósito: `sounddevice` vive no extra `voice`
+    (ADR-0020), e quem só usa o CLI de texto não deve descobrir isso por
+    `ImportError`. A mensagem traz a instrução de instalação.
+    """
+    try:
+        from jarvis.voice.adapters.sounddevice_audio import (
+            MicrophoneSource,
+            SpeakerSink,
+            resolve_device,
+        )
+    except ImportError as error:
+        raise AudioDeviceError(
+            "áudio indisponível: instale o extra com `uv sync --extra voice`"
+        ) from error
+
+    audio_format = AudioFormat(sample_rate=settings.voice_sample_rate)
+    source = MicrophoneSource(
+        audio_format=audio_format, device=resolve_device(settings.voice_input_device)
+    )
+    sink = SpeakerSink(
+        audio_format=audio_format, device=resolve_device(settings.voice_output_device)
+    )
+    return source, sink
+
+
+def build_wake_detector(
+    settings: Settings, *, stt: SpeechToText
+) -> tuple[WakeWordDetector, StdinTrigger | None]:
+    """Push-to-talk por default: custo zero e nenhum áudio na nuvem sem pedido."""
+    phrases = parse_phrases(
+        settings.wake_phrases, max_edit_distance=settings.wake_max_edit_distance
+    )
+    if settings.wake_strategy == "transcription":
+        return (
+            TranscriptionWakeWord(
+                stt=stt,
+                phrases=phrases,
+                vad=build_vad_settings(settings),
+                language=settings.stt_language or None,
+                timeout_seconds=settings.stt_timeout_seconds,
+                budget_per_minute=settings.stt_wake_budget_per_minute,
+                monotonic=time.monotonic,
+            ),
+            None,
+        )
+
+    trigger = StdinTrigger()
+    trigger.start()
+    return PushToTalkWakeWord(trigger=trigger.take, stop=trigger.stop), trigger
+
+
+def build_vad_settings(settings: Settings) -> VadSettings:
+    return VadSettings(
+        rms_threshold=settings.vad_rms_threshold,
+        min_speech_ms=settings.vad_min_speech_ms,
+        silence_ms=settings.vad_silence_ms,
+        max_utterance_seconds=settings.vad_max_utterance_seconds,
+    )
+
+
+def build_voice_settings(settings: Settings) -> VoiceSettings:
+    return VoiceSettings(
+        vad=build_vad_settings(settings),
+        session=SessionSettings(
+            follow_up_seconds=settings.voice_follow_up_seconds,
+            idle_timeout_seconds=settings.voice_idle_timeout_seconds,
+            max_turns=settings.voice_max_turns,
+        ),
+        language=settings.stt_language or None,
+        stt_timeout_seconds=settings.stt_timeout_seconds,
+        tts_timeout_seconds=settings.tts_timeout_seconds,
+        barge_in=settings.voice_barge_in,
+        barge_in_rms=settings.voice_barge_in_rms,
+    )
+
+
+def voice_session_event(session: VoiceSession, *, started: bool) -> Event:
+    """A sessão de voz como fato, **sem uma palavra do que foi dito**.
+
+    Os construtores vivem aqui e não em `jarvis.voice` porque aquele pacote não
+    conhece o Event System — é o que mantém a camada de voz sem caminho até
+    persistência. Quem publica é o composition root, como manda o plano da fase.
+
+    O payload carrega identidade e contagem. Transcrição é estado operacional
+    apagável em `voice.db`; um evento é para sempre
+    ([ADR-0025](../../docs/adr/0025-voice-transcripts-as-operational-state.md)).
+    """
+    event_type = VOICE_SESSION_STARTED if started else VOICE_SESSION_ENDED
+    payload: dict[str, JsonValue] = {"session_id": session.session_id}
+    if not started:
+        payload["turn_count"] = session.turn_count
+        payload["reason"] = session.ended_reason
+        if session.duration_ms is not None:
+            payload["duration_ms"] = round(session.duration_ms, 1)
+
+    return Event(
+        event_id=deterministic_event_id(
+            source=VOICE_SOURCE, natural_key=f"{session.session_id}:{event_type}"
+        ),
+        event_type=event_type,
+        source=VOICE_SOURCE,
+        occurred_at=session.ended_at
+        if not started and session.ended_at is not None
+        else session.started_at,
+        payload=payload,
+        correlation_id=session.correlation_id,
+    )
+
+
+class RuntimeConversationalAgent:
+    """Implementa `jarvis.voice.ports.ConversationalAgent`.
+
+    É a ponte inteira entre a voz e o resto do Jarvis, e o motivo de
+    `jarvis.voice` não importar `jarvis.agent`, `jarvis.memory` nem
+    `jarvis.execution`: tudo que essas camadas fazem acontece **aqui**, no
+    composition root, exatamente como já acontecia em `agent ask`.
+    """
+
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        runtime: AgentRuntime,
+        memories: SqliteMemoryRepository,
+        store: SqliteEventStore,
+        skills: SkillRegistry,
+        execute: bool = False,
+        on_trace: Callable[[TurnTrace], None] = lambda trace: None,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    ) -> None:
+        self._settings = settings
+        self._runtime = runtime
+        self._memories = memories
+        self._store = store
+        self._skills = skills
+        self._execute = execute
+        self._on_trace = on_trace
+        self._clock = clock
+
+    def respond(self, text: str, *, session: VoiceSession) -> AgentReply:
+        now = self._clock()
+        turn = self._runtime.handle(
+            UserMessage(text=text, at=now, conversation_id=session.session_id),
+            conversation=_conversation_of(session),
+            recent_events=_recent_events(self._store),
+            capabilities=capabilities_from(self._skills),
+        )
+        # Mesma proveniência de `agent ask`, e por decisão reavaliada: mesmo com
+        # a sessão persistida, o caminho do usuário segue sem `reference`, porque
+        # um ponteiro por sessão faria `find_duplicate` tratar cada conversa como
+        # um universo novo e trocaria reforço por linha nova (ADR-0018).
+        write = _persist_memory_proposal(
+            turn, build_memory_manager(self._memories), provenance=USER_ASSERTION
+        )
+        self._on_trace(_trace_of(turn, write=write, at=now))
+
+        message = _reply(turn.decision, write)
+        outcome = self._submit(turn)
+        if outcome is None:
+            return AgentReply(
+                text=message,
+                decision_type=turn.decision.type.value,
+                correlation_id=turn.decision.correlation_id,
+            )
+        return AgentReply(
+            text=_spoken_outcome(message, outcome),
+            decision_type=turn.decision.type.value,
+            correlation_id=turn.decision.correlation_id,
+            awaiting_confirmation=outcome.execution_id
+            if outcome.status is ExecutionStatus.AWAITING_CONFIRMATION
+            else None,
+            detail=outcome.reason,
+        )
+
+    def answer_confirmation(
+        self, execution_id: str, *, granted: bool, session: VoiceSession
+    ) -> AgentReply:
+        """A confirmação falada percorre o mesmo caminho da digitada.
+
+        Publica o evento e retoma num passo separado, que **reavalia a política
+        do zero** (ADR-0013/0014). A voz não ganha atalho nenhum.
+        """
+        with SqliteActionRepository.open(action_store_path(self._settings)) as actions:
+            pending = actions.get(execution_id)
+            if pending is None:
+                return AgentReply(text="Não encontrei essa ação.", decision_type="notify")
+
+            publisher = _build_publisher(self._store, confirmations=ActionEventConsumer(actions))
+            publisher.publish(
+                confirmation_event(
+                    granted=granted,
+                    execution_id=pending.execution_id,
+                    parameters_fingerprint=pending.parameters_fingerprint,
+                    correlation_id=pending.correlation_id,
+                    occurred_at=self._clock(),
+                    causation_id=pending.causation_id,
+                    reason="" if granted else "rejected_by_voice",
+                )
+            )
+            if not granted:
+                return AgentReply(text="Cancelado.", decision_type="notify")
+
+            tools = build_tool_registry(self._settings)
+            try:
+                executor = build_action_executor(
+                    self._settings,
+                    store=self._store,
+                    actions=actions,
+                    tools=tools,
+                    skills=self._skills,
+                )
+                outcome = executor.resume(pending.execution_id)
+            finally:
+                tools.close()
+
+        return AgentReply(
+            text=_spoken_outcome(None, outcome),
+            decision_type="act",
+            correlation_id=outcome.correlation_id,
+        )
+
+    def _submit(self, turn: AgentTurn) -> ExecutionOutcome | None:
+        if not (self._execute and turn.decision.proposes_action):
+            return None
+        return _submit_proposal(
+            self._settings,
+            turn=turn,
+            store=self._store,
+            skills=self._skills,
+            actor=Actor.USER,
+        )
+
+
+def _conversation_of(session: VoiceSession) -> Conversation:
+    """Traduz a sessão de voz na conversa que o agente entende.
+
+    Uma história só, em dois formatos: `VoiceSession` é o que persiste e o que o
+    painel mostra; `Conversation` é o que entra no prompt.
+    """
+    conversation = Conversation(conversation_id=session.session_id)
+    for turn in session.turns:
+        role = Role.USER if turn.role.value == "user" else Role.ASSISTANT
+        conversation = conversation.append(ConversationTurn(role=role, text=turn.text, at=turn.at))
+    return conversation
+
+
+def _spoken_outcome(message: str | None, outcome: ExecutionOutcome) -> str:
+    """O que o Jarvis diz sobre o desfecho de uma ação, em uma frase."""
+    if outcome.status is ExecutionStatus.COMPLETED:
+        return message or f"Pronto: {outcome.skill}."
+    if outcome.status is ExecutionStatus.AWAITING_CONFIRMATION:
+        return f"{message + ' ' if message else ''}Preciso da sua confirmação para {outcome.skill}."
+    if outcome.status is ExecutionStatus.DENIED:
+        return f"Não posso fazer isso: {outcome.reason or 'a política negou'}."
+    return f"Não consegui concluir {outcome.skill}: {outcome.reason or 'falha na execução'}."
+
+
+def _trace_of(turn: AgentTurn, *, write: MemoryWrite, at: datetime) -> TurnTrace:
+    return TurnTrace(
+        decision_type=turn.decision.type.value,
+        decided_at=at,
+        reason=turn.decision.reason,
+        message=_reply(turn.decision, write) or "",
+        correlation_id=turn.decision.correlation_id,
+        consulted_llm=turn.consulted_llm,
+        importance=turn.importance.total if turn.importance is not None else None,
+    )
+
+
+def build_observability_service(
+    settings: Settings,
+    *,
+    store: SqliteEventStore,
+    context: ContextEngine,
+    memories: SqliteMemoryRepository,
+    actions: SqliteActionRepository,
+) -> ObservabilityService:
+    """Liga o painel às fontes de verdade.
+
+    As quatro leituras são **funções**, e é isso que mantém `jarvis.interface`
+    sem conhecer SQLite: ela recebe dados já lidos, não uma conexão.
+    """
+
+    def read_context() -> CurrentContext:
+        context.refresh()
+        return context.current()
+
+    return ObservabilityService(
+        read_events=lambda limit: store.read_latest(limit=limit),
+        read_context=read_context,
+        read_memories=lambda limit: memories.search(MemoryCriteria(limit=limit)),
+        read_pending=lambda: actions.list_by_status(ExecutionStatus.AWAITING_CONFIRMATION),
+        timeline_limit=settings.panel_timeline_limit,
+        memory_limit=settings.panel_memory_limit,
+    )
+
+
+class PanelBridge:
+    """Une o loop de voz ao painel, com as duas cadências do plano da fase.
+
+    - **status**: toda transição de estado publica na hora, sem tocar banco;
+    - **snapshot**: a cada `JARVIS_PANEL_REFRESH_SECONDS` e ao fim de cada turno,
+      relê as quatro fontes.
+
+    Tudo roda na thread principal. O servidor HTTP só lê o `LiveState`, que é o
+    que torna a regra "nenhuma thread além da principal toca SQLite" verdadeira
+    por construção (ADR-0023).
+    """
+
+    def __init__(
+        self,
+        *,
+        live: LiveState,
+        service: ObservabilityService,
+        refresh_seconds: float = 2.0,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._live = live
+        self._service = service
+        self._refresh_seconds = refresh_seconds
+        self._monotonic = monotonic
+        self._due = 0.0
+        self._session: VoiceSession | None = None
+        self._voice: VoiceStatus | None = None
+        self._trace: TurnTrace | None = None
+        self._last: PanelSnapshot | None = None
+
+    @property
+    def live(self) -> LiveState:
+        return self._live
+
+    def on_status(self, status: VoiceStatus) -> None:
+        self._voice = status
+        if self._last is None or self._monotonic() >= self._due:
+            self.refresh()
+            return
+        self._publish(replace(self._last, voice=_voice_view_of(status)))
+
+    def on_session(self, session: VoiceSession, started: bool) -> None:
+        self._session = session
+        self.refresh()
+
+    def on_trace(self, trace: TurnTrace) -> None:
+        self._trace = trace
+
+    def refresh(self) -> None:
+        snapshot = self._service.snapshot(
+            voice=self._voice, session=self._session, trace=self._trace
+        )
+        self._due = self._monotonic() + self._refresh_seconds
+        self._publish(snapshot)
+
+    def _publish(self, snapshot: PanelSnapshot) -> None:
+        self._last = snapshot
+        self._live.publish(snapshot)
+
+
+def _voice_view_of(status: VoiceStatus) -> VoiceStatusView:
+    return VoiceStatusView(
+        state=status.state.value,
+        session_id=status.session_id,
+        detail=status.detail,
+        last_transcript=status.last_transcript,
+        last_reply=status.last_reply,
+        at=status.at,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="jarvis", description="Agente pessoal de IA.")
     parser.add_argument("--version", action="version", version=f"jarvis {__version__}")
@@ -517,6 +967,54 @@ def build_parser() -> argparse.ArgumentParser:
     reject.add_argument("execution_id")
     reject.add_argument("--reason", default="rejected_by_user")
 
+    voice = subparsers.add_parser("voice", help="Fala e escuta.")
+    voice.set_defaults(voice_parser=voice)
+    voice_actions = voice.add_subparsers(dest="voice_command")
+
+    voice_actions.add_parser("devices", help="Lista os dispositivos de áudio disponíveis.")
+
+    say = voice_actions.add_parser("say", help="Sintetiza uma frase.")
+    say.add_argument("text")
+    say.add_argument("--out", help="Grava um WAV em vez de tocar no alto-falante.")
+
+    transcribe = voice_actions.add_parser("transcribe", help="Transcreve um arquivo WAV.")
+    transcribe.add_argument("path")
+
+    listen = voice_actions.add_parser("listen", help="Conversa por voz, sem painel.")
+    listen.add_argument(
+        "--execute",
+        action="store_true",
+        help="Submete ações propostas ao Policy Engine (por padrão elas só são faladas).",
+    )
+    # `listen` e `serve` são o mesmo processo residente com peças diferentes.
+    listen.set_defaults(no_panel=True, no_voice=False)
+
+    sessions = voice_actions.add_parser("sessions", help="Consulta e apaga sessões de voz.")
+    sessions_actions = sessions.add_subparsers(dest="sessions_command")
+    sessions_list = sessions_actions.add_parser("list", help="Lista as sessões recentes.")
+    sessions_list.add_argument("--limit", type=int, default=DEFAULT_LIST_LIMIT)
+    sessions_show = sessions_actions.add_parser("show", help="Mostra os turnos de uma sessão.")
+    sessions_show.add_argument("session_id")
+    sessions_purge = sessions_actions.add_parser("purge", help="Apaga sessões e suas transcrições.")
+    sessions_purge.add_argument("session_id", nargs="?")
+    sessions_purge.add_argument("--all", action="store_true", help="Apaga todas as sessões.")
+
+    panel = subparsers.add_parser("panel", help="Painel de observabilidade local.")
+    panel.set_defaults(panel_parser=panel)
+    panel_actions = panel.add_subparsers(dest="panel_command")
+    serve = panel_actions.add_parser("serve", help="Serve o painel em 127.0.0.1.")
+    serve.add_argument("--once", action="store_true", help="Publica um snapshot e sai.")
+    serve.set_defaults(no_panel=False, no_voice=True)
+
+    run = subparsers.add_parser("run", help="Voz e painel no mesmo processo.")
+    run.add_argument(
+        "--execute",
+        action="store_true",
+        help="Submete ações propostas ao Policy Engine (por padrão elas só são faladas).",
+    )
+    run.add_argument("--no-panel", action="store_true", help="Sobe só a voz.")
+    run.add_argument("--no-voice", action="store_true", help="Sobe só o painel.")
+
     return parser
 
 
@@ -635,6 +1133,12 @@ def _info(settings: Settings) -> int:
     print(f"context_store {context_store_path(settings)}")
     print(f"memory_store  {memory_store_path(settings)}")
     print(f"action_store  {action_store_path(settings)}")
+    print(f"voice_store   {voice_store_path(settings)}")
+    print(
+        f"voice         wake={settings.wake_strategy} stt={settings.stt_provider} "
+        f"tts={settings.tts_provider} voz={settings.tts_voice}"
+    )
+    print(f"panel         http://{settings.panel_host}:{settings.panel_port}")
     print(f"workspace     {settings.file_skill_root}")
     print(f"mcp_config    {settings.mcp_config_path or ABSENT}")
     # A política efetiva não deve ser adivinhada: ela é a diferença entre uma
@@ -1381,6 +1885,276 @@ def _action(args: argparse.Namespace, settings: Settings) -> int:
     return _action_answer(args, settings, granted=False)
 
 
+def _voice_devices() -> int:
+    from jarvis.voice.adapters.sounddevice_audio import list_devices
+
+    devices = list_devices()
+    if not devices:
+        print("nenhum dispositivo de áudio encontrado")
+        return EXIT_OK
+    for device in devices:
+        kind = []
+        if device.max_input_channels:
+            kind.append("entrada")
+        if device.max_output_channels:
+            kind.append("saída")
+        print(
+            f"{device.index:<4} {device.name:<44} {'/'.join(kind) or '-':<16} "
+            f"{device.default_sample_rate:.0f} Hz"
+        )
+    return EXIT_OK
+
+
+def _voice_say(args: argparse.Namespace, settings: Settings) -> int:
+    clip = build_tts(settings).synthesize(args.text, timeout_seconds=settings.tts_timeout_seconds)
+    if args.out:
+        destination = Path(args.out)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(encode_wav(clip))
+        print(f"gravado    {destination}")
+        print(f"duração    {clip.duration_seconds:.2f}s")
+        return EXIT_OK
+
+    _, sink = build_audio_io(settings)
+    try:
+        result = sink.play(clip)
+    finally:
+        sink.close()
+    print(f"falado     {result.played_seconds:.2f}s")
+    return EXIT_OK
+
+
+def _voice_transcribe(args: argparse.Namespace, settings: Settings) -> int:
+    source = Path(args.path)
+    if not source.is_file():
+        raise InvalidVoiceInputError(f"arquivo não encontrado: {source}")
+
+    clip = decode_wav(source.read_bytes())
+    transcript = build_stt(settings).transcribe(
+        clip,
+        language=settings.stt_language or None,
+        timeout_seconds=settings.stt_timeout_seconds,
+    )
+    print(f"duração    {clip.duration_seconds:.2f}s")
+    print(f"texto      {transcript.text or '(silêncio)'}")
+    return EXIT_OK
+
+
+def _print_voice_session(session: VoiceSession) -> None:
+    print(f"session_id  {session.session_id}")
+    print(f"started_at  {session.started_at.isoformat()}")
+    print(f"ended_at    {session.ended_at.isoformat() if session.ended_at else ABSENT}")
+    print(f"reason      {session.ended_reason or ABSENT}")
+    print(f"turns       {session.turn_count}")
+    for turn in session.turns:
+        speaker = "você  " if turn.role.value == "user" else "jarvis"
+        print(f"  {turn.at.isoformat()}  {speaker}  {turn.text}")
+
+
+def _voice_sessions(args: argparse.Namespace, settings: Settings) -> int:
+    command = args.sessions_command or "list"
+    with SqliteVoiceSessionRepository.open(voice_store_path(settings)) as sessions:
+        if command == "show":
+            found = sessions.get(args.session_id)
+            if found is None:
+                print("sessão não encontrada", file=sys.stderr)
+                return EXIT_INVALID_INPUT
+            _print_voice_session(found)
+            return EXIT_OK
+
+        if command == "purge":
+            if args.all:
+                # Retenção zero apaga tudo: o corte é "agora".
+                print(f"apagadas {sessions.purge_before(datetime.now(UTC))} sessão(ões)")
+                return EXIT_OK
+            if not args.session_id:
+                raise InvalidVoiceInputError("informe um session_id ou use --all")
+            removed = sessions.purge(args.session_id)
+            print(f"apagada {args.session_id}" if removed else "sessão não encontrada")
+            return EXIT_OK
+
+        found_all = sessions.list(
+            limit=args.limit if hasattr(args, "limit") else DEFAULT_LIST_LIMIT
+        )
+
+    if not found_all:
+        print("nenhuma sessão de voz registrada")
+        return EXIT_OK
+    for session in found_all:
+        print(
+            f"{session.session_id}  {session.started_at.isoformat()}  "
+            f"turnos={session.turn_count:<3} {session.ended_reason or 'aberta'}"
+        )
+    return EXIT_OK
+
+
+def _apply_retention(settings: Settings, sessions: SqliteVoiceSessionRepository) -> None:
+    """A retenção roda na inicialização, não num job: o processo residente é o
+    único momento em que o Jarvis sabe que está vivo."""
+    if settings.voice_retention_days <= 0:
+        return
+    cutoff = datetime.now(UTC) - timedelta(days=settings.voice_retention_days)
+    purged = sessions.purge_before(cutoff)
+    if purged:
+        print(f"retenção: {purged} sessão(ões) antigas apagadas", file=sys.stderr)
+
+
+def _run_resident(args: argparse.Namespace, settings: Settings) -> int:
+    """`jarvis run`, `jarvis voice listen` e `jarvis panel serve` no mesmo corpo.
+
+    O que muda entre os três é apenas quais peças sobem — e é por isso que eles
+    compartilham o wiring em vez de duplicá-lo.
+    """
+    with_voice = not getattr(args, "no_voice", False)
+    with_panel = not getattr(args, "no_panel", False)
+    execute = getattr(args, "execute", False) or settings.voice_execute_actions
+    skills = build_skill_registry()
+
+    with (
+        SqliteEventStore.open(event_store_path(settings)) as store,
+        SqliteContextSnapshotRepository.open(context_store_path(settings)) as snapshots,
+        SqliteMemoryRepository.open(memory_store_path(settings)) as memories,
+        SqliteActionRepository.open(action_store_path(settings)) as actions,
+        SqliteVoiceSessionRepository.open(voice_store_path(settings)) as sessions,
+    ):
+        _apply_retention(settings, sessions)
+        context = _prepared_context(store, snapshots)
+        bridge = PanelBridge(
+            live=LiveState(),
+            service=build_observability_service(
+                settings, store=store, context=context, memories=memories, actions=actions
+            ),
+            refresh_seconds=settings.panel_refresh_seconds,
+        )
+        bridge.refresh()
+
+        panel = (
+            PanelServer(live=bridge.live, host=settings.panel_host, port=settings.panel_port)
+            if with_panel
+            else None
+        )
+        if panel is not None:
+            panel.start()
+            print(f"painel     {panel.url}")
+            if settings.panel_open_browser:
+                open_browser(panel.url)
+
+        try:
+            if with_voice:
+                _serve_voice(
+                    settings,
+                    bridge=bridge,
+                    store=store,
+                    context=context,
+                    memories=memories,
+                    sessions=sessions,
+                    skills=skills,
+                    execute=execute,
+                )
+            elif panel is not None:
+                _serve_panel_only(settings, bridge=bridge, once=getattr(args, "once", False))
+            else:
+                print("nada a fazer: --no-voice e --no-panel juntos", file=sys.stderr)
+                return EXIT_INVALID_INPUT
+        except KeyboardInterrupt:
+            print("\nencerrando", file=sys.stderr)
+        finally:
+            if panel is not None:
+                panel.stop()
+    return EXIT_OK
+
+
+def _serve_voice(
+    settings: Settings,
+    *,
+    bridge: PanelBridge,
+    store: SqliteEventStore,
+    context: ContextEngine,
+    memories: SqliteMemoryRepository,
+    sessions: SqliteVoiceSessionRepository,
+    skills: SkillRegistry,
+    execute: bool,
+) -> None:
+    stt = build_stt(settings)
+    tts = build_tts(settings)
+    source, sink = build_audio_io(settings)
+    wake, trigger = build_wake_detector(settings, stt=stt)
+    publisher = _build_publisher(store)
+
+    def on_session(session: VoiceSession, started: bool) -> None:
+        # O fato vira evento aqui, no root: identidade e contagem, nunca conteúdo.
+        publisher.publish(voice_session_event(session, started=started))
+        # O evento acabou de mudar a projeção de conversa; o painel precisa vê-la.
+        context.rebuild_from(store)
+        bridge.on_session(session, started)
+
+    agent = RuntimeConversationalAgent(
+        settings,
+        runtime=build_agent_runtime(settings, context=context, memories=memories),
+        memories=memories,
+        store=store,
+        skills=skills,
+        execute=execute,
+        on_trace=bridge.on_trace,
+    )
+    loop = VoiceLoop(
+        source=source,
+        sink=sink,
+        stt=stt,
+        tts=tts,
+        wake=wake,
+        agent=agent,
+        sessions=sessions,
+        settings=build_voice_settings(settings),
+        on_status=bridge.on_status,
+        on_session=on_session,
+    )
+
+    print(f"escutando  wake={settings.wake_strategy} execute={'sim' if execute else 'não'}")
+    if settings.wake_strategy == "push_to_talk":
+        print("           pressione Enter para falar; Ctrl-C encerra")
+    try:
+        loop.run()
+    finally:
+        source.close()
+        sink.close()
+        wake.close()
+        if trigger is not None:
+            trigger.stop()
+
+
+def _serve_panel_only(settings: Settings, *, bridge: PanelBridge, once: bool) -> None:
+    if once:
+        bridge.refresh()
+        return
+    print("           Ctrl-C encerra")
+    while True:
+        bridge.refresh()
+        time.sleep(settings.panel_refresh_seconds)
+
+
+def _voice(args: argparse.Namespace, settings: Settings) -> int:
+    if args.voice_command is None:
+        args.voice_parser.print_help()
+        return EXIT_OK
+    if args.voice_command == "devices":
+        return _voice_devices()
+    if args.voice_command == "say":
+        return _voice_say(args, settings)
+    if args.voice_command == "transcribe":
+        return _voice_transcribe(args, settings)
+    if args.voice_command == "sessions":
+        return _voice_sessions(args, settings)
+    return _run_resident(args, settings)
+
+
+def _panel(args: argparse.Namespace, settings: Settings) -> int:
+    if args.panel_command is None:
+        args.panel_parser.print_help()
+        return EXIT_OK
+    return _run_resident(args, settings)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1408,6 +2182,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _tools(args, settings)
         if args.command == "action":
             return _action(args, settings)
+        if args.command == "voice":
+            return _voice(args, settings)
+        if args.command == "panel":
+            return _panel(args, settings)
+        if args.command == "run":
+            return _run_resident(args, settings)
 
         if args.events_command is None:
             args.events_parser.print_help()
@@ -1436,6 +2216,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         ToolInvalidInputError,
         ToolNotFoundError,
         ToolNotPermittedError,
+        # Voz e painel: entrada inválida e configuração impossível são de
+        # domínio; falta de dispositivo e falha de provider são infraestrutura,
+        # logo abaixo.
+        VoiceError,
+        InterfaceError,
     ) as error:
         print(f"erro: {error}", file=sys.stderr)
         return EXIT_INVALID_INPUT
@@ -1446,6 +2231,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         LLMProviderError,
         ActionRepositoryError,
         ToolError,
+        AudioError,
+        SpeechToTextError,
+        TextToSpeechError,
+        VoiceRepositoryError,
     ) as error:
         print(f"erro: {error}", file=sys.stderr)
         return EXIT_INFRASTRUCTURE_ERROR
