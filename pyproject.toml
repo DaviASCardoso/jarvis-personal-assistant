@@ -13,6 +13,14 @@ dependencies = [
     "pydantic-settings>=2.7",
 ]
 
+# Áudio é a primeira necessidade que a biblioteca padrão não atende de forma
+# alguma — ao contrário de HTTP, que `urllib` já resolve (ADR-0011/0015). Fica
+# **opcional** para que `uv sync --locked` e `uv run pytest` continuem sem
+# dependência nova, sem hardware e sem rede: a suíte inteira roda com doubles, e
+# o CI headless não instala este extra ([ADR-0020]).
+[project.optional-dependencies]
+voice = ["sounddevice>=0.5"]
+
 [project.scripts]
 jarvis = "jarvis.cli:main"
 
@@ -54,6 +62,13 @@ select = [
 python_version = "3.13"
 files = ["src", "tests"]
 strict = true
+
+# `sounddevice` vive no extra `voice` e não traz stubs. O override existe para
+# que `uv run mypy` passe igual **com e sem** o extra instalado — sem ele, o
+# type check dependeria de o ambiente ter áudio, o que o CI não tem.
+[[tool.mypy.overrides]]
+module = ["sounddevice.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
