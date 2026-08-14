@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 VENDOR: Final = "google"
 API_URL: Final = "https://texttospeech.googleapis.com/v1/text:synthesize"
+USER_AGENT: Final = "jarvis/0.1.0"
 
 DEFAULT_VOICE: Final = "pt-BR-Neural2-B"
 DEFAULT_LANGUAGE: Final = "pt-BR"
@@ -154,7 +155,11 @@ class GoogleCloudTextToSpeech:
         request = urllib.request.Request(
             url=API_URL,
             data=json.dumps(body).encode("utf-8"),
-            headers={"Content-Type": "application/json", "x-goog-api-key": self._api_key},
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": self._api_key,
+                "User-Agent": USER_AGENT,
+            },
             method="POST",
         )
 

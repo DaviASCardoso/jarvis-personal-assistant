@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 VENDOR: Final = "groq"
 API_URL: Final = "https://api.groq.com/openai/v1/audio/transcriptions"
+USER_AGENT: Final = "jarvis/0.1.0"
 
 #: Configuração, não constante de contrato: o catálogo do provider muda mais
 #: rápido que este repositório.
@@ -167,6 +168,7 @@ class GroqSpeechToText:
             headers={
                 "Authorization": f"Bearer {self._api_key}",
                 "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "User-Agent": USER_AGENT,
             },
             method="POST",
         )
