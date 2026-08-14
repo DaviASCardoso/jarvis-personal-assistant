@@ -19,7 +19,7 @@ O sistema será construído em oito fases:
 - [x] **Fase 3 — Memory System**
 - [x] **Fase 4 — Agent Runtime**
 - [x] **Fase 5 — Skills + MCP**
-- [ ] **Fase 6 — Voice**
+- [x] **Fase 6 — Voice**
 - [ ] **Fase 7 — Proactivity + Autonomy**
 - [ ] **Fase 8 — Integration + Hardening**
 
@@ -955,10 +955,16 @@ feat: complete skill and MCP architecture
 
 ## 6.1 — Wake Word
 
-- [ ] Criar `WakeWordDetector`
-- [ ] Definir interface
-- [ ] Integrar detector
-- [ ] Criar testes
+- [x] Criar `WakeWordDetector` — port **push**: o loop lê o microfone e alimenta
+      o detector, para que o mesmo stream sirva wake word, captura e barge-in
+- [x] Definir interface
+- [x] Integrar detector — **dois** adapters, ambos sem IA local
+      ([ADR-0021](docs/adr/0021-wake-word-without-local-ai.md)):
+      `PushToTalkWakeWord` (default; nenhum áudio sai do dispositivo antes de o
+      usuário pedir) e `TranscriptionWakeWord` (VAD determinístico → transcrição
+      curta → casamento de frase, com orçamento por minuto). Porcupine e
+      openWakeWord ficaram fora por serem inferência local, proibida na fase
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -970,12 +976,17 @@ feat: implement wake word interface
 
 ## 6.2 — Speech-to-Text
 
-- [ ] Criar `SpeechToText`
-- [ ] Integrar modelo/provider
-- [ ] Implementar captura
-- [ ] Implementar transcrição
-- [ ] Tratar erros
-- [ ] Criar testes
+- [x] Criar `SpeechToText`
+- [x] Integrar modelo/provider — Groq (`whisper-large-v3-turbo`) por REST da
+      stdlib, sem SDK de vendor
+      ([ADR-0022](docs/adr/0022-cloud-speech-over-stdlib-rest.md))
+- [x] Implementar captura — ports `AudioSource`/`AudioSink` + adapter
+      `sounddevice` em **extra opcional**
+      ([ADR-0020](docs/adr/0020-audio-io-ports-and-optional-backend.md)); a suíte
+      padrão continua sem áudio, sem rede e sem a dependência
+- [x] Implementar transcrição
+- [x] Tratar erros — taxonomia própria (`Stt*`), retry respeitando `Retry-After`
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -987,11 +998,15 @@ feat: implement speech-to-text pipeline
 
 ## 6.3 — Text-to-Speech
 
-- [ ] Criar `TextToSpeech`
-- [ ] Integrar provider
-- [ ] Implementar geração
-- [ ] Implementar reprodução
-- [ ] Criar testes
+- [x] Criar `TextToSpeech` — port separado de `SpeechToText`, pelo mesmo critério
+      do ADR-0002: dois papéis com ciclos de troca independentes
+- [x] Integrar provider — Google Cloud TTS por REST da stdlib, credencial no
+      header `x-goog-api-key`, nunca na query string
+- [x] Implementar geração — `LINEAR16` (não MP3): evita um decoder e, com ele,
+      uma dependência
+- [x] Implementar reprodução — o sink abre o stream **na taxa do clip**, o que
+      evita reamostrar os 24 kHz da síntese para os 16 kHz da captura
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -1003,12 +1018,18 @@ feat: implement text-to-speech pipeline
 
 ## 6.4 — Voice Sessions
 
-- [ ] Criar `VoiceSession`
-- [ ] Definir session ID
-- [ ] Integrar conversa
-- [ ] Controlar timeout
-- [ ] Controlar estado
-- [ ] Criar testes
+- [x] Criar `VoiceSession` — imutável, como `Conversation`; persistida em
+      `data/voice.db` (quinto banco) como **estado operacional apagável**, nunca
+      como evento ([ADR-0025](docs/adr/0025-voice-transcripts-as-operational-state.md)).
+      Áudio não é gravado em lugar nenhum; retenção default de 7 dias
+- [x] Definir session ID — é também o `correlation_id`, então
+      `events list --correlation-id` mostra a conversa inteira
+- [x] Integrar conversa — o composition root traduz `VoiceSession` em
+      `Conversation` para o prompt; uma história só, em dois formatos
+- [x] Controlar timeout — janela de follow-up (dispensa a wake word entre
+      turnos), timeout de ociosidade e teto de turnos
+- [x] Controlar estado — sete estados, e toda transição é observável pelo painel
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -1020,11 +1041,16 @@ feat: implement voice sessions
 
 ## 6.5 — Interruption
 
-- [ ] Detectar nova fala
-- [ ] Interromper TTS
-- [ ] Processar novo comando
-- [ ] Controlar concorrência
-- [ ] Criar testes
+- [x] Detectar nova fala — limiar próprio, mais alto que o do VAD: sem fone, o
+      alto-falante alimenta o microfone
+- [x] Interromper TTS — `AudioSink.play` consulta `cancelled()` **entre blocos**;
+      o clip restante é descartado, nunca retomado
+- [x] Processar novo comando — o áudio capturado durante a interrupção vira o
+      começo do próximo enunciado, em vez de obrigar a repetir
+- [x] Controlar concorrência — **sem thread, sem lock, sem fila**: é a função de
+      cancelamento que lê o microfone. O detector por transcrição fica suspenso
+      enquanto o Jarvis fala, senão ele se acorda com a própria voz
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -1036,11 +1062,13 @@ feat: implement voice interruption
 
 ## 6.6 — Voice Integration
 
-- [ ] Integrar wake word
-- [ ] Integrar STT
-- [ ] Integrar Agent
-- [ ] Integrar TTS
-- [ ] Testar conversa completa
+- [x] Integrar wake word
+- [x] Integrar STT
+- [x] Integrar Agent — por um **port próprio** (`ConversationalAgent`), não por
+      import. `jarvis.voice` não conhece `jarvis.agent`, e é isso que torna o
+      loop inteiro testável sem LLM, sem banco e sem hardware
+- [x] Integrar TTS
+- [x] Testar conversa completa
 
 **Commit esperado:**
 
@@ -1048,9 +1076,56 @@ feat: implement voice interruption
 feat: complete conversational voice interface
 ```
 
+---
+
+## 6.7 — Observability Panel
+
+> Subfase **acrescentada na Fase 6**. O `PHASE_6_EXECUTION_CONTEXT.md` da fase
+> exige um painel de observabilidade ("Isso é obrigatório") que este roadmap não
+> previa. Os dois são conciliáveis: o painel é uma *Interface* no sentido de
+> Ports & Adapters — um ponto de entrada que **lê** o Core —, não uma capacidade
+> nova, e por isso não antecipa a Fase 7. Mesmo precedente de anotar em vez de
+> resolver em silêncio usado nas subfases 2.2, 3.2 e 5.7/5.8.
+
+- [x] Criar view models (`PanelSnapshot` e os sete blocos)
+- [x] Criar `ObservabilityService` sobre funções de leitura injetadas
+- [x] Servir localmente (`http.server`, loopback, SSE com fallback)
+- [x] **Somente leitura** — nenhuma rota inicia ação
+      ([ADR-0024](docs/adr/0024-observability-panel-as-snapshot-reader.md))
+- [x] Notificações — **toast do painel e nada além**. Nenhum port
+      `Notification`, nenhum canal de desktop, nenhuma prioridade: isso é a
+      subfase 7.3, e implementá-la aqui adiantaria fase. O toast é renderização
+      de eventos que já existem no Event Store
+- [x] Criar testes
+
+**Commit esperado:**
+
+```text
+feat: implement observability panel
+```
+
+---
+
+## 6.8 — Voice + Panel Integration
+
+- [x] Um processo residente (`jarvis run`)
+      ([ADR-0023](docs/adr/0023-single-resident-process.md))
+- [x] Estado ao vivo entre as threads (`LiveState`), com uma **única** thread
+      tocando SQLite
+- [x] Duas cadências: status a cada transição, snapshot completo por intervalo
+- [x] Eventos de sessão alimentando o campo `conversation` do Context Engine —
+      que existia desde a Fase 2 sem fonte
+- [x] Criar testes
+
+**Commit esperado:**
+
+```text
+feat: serve voice and panel from one process
+```
+
 ### Voice completo
 
-- [ ] **FASE 6 CONCLUÍDA**
+- [x] **FASE 6 CONCLUÍDA**
 
 ---
 
@@ -1511,11 +1586,12 @@ O sistema consegue agir.
 **Semana 12**
 
 ```text
-[ ] Wake Word
-[ ] STT
-[ ] Agent
-[ ] TTS
-[ ] Interruption
+[x] Wake Word — sem IA local, ver ADR-0021
+[x] STT — Groq, ver ADR-0022
+[x] Agent — por port próprio, sem import
+[x] TTS — Google Cloud, ver ADR-0022
+[x] Interruption
+[x] Painel — subfases 6.7/6.8, acrescentadas na fase
 ```
 
 O sistema consegue conversar.
@@ -1807,12 +1883,14 @@ TTS
 | — | 5.8 | ⬜ | fora de escopo da Fase 5 (OAuth/integração externa) — ver 5.8 |
 | 2026-08-13 | 5.9 | ✅ | `feat: persist pending action state` + `feat: add CLI commands for skills and actions` |
 | 2026-08-13 | 5.10 | ✅ | `feat: orchestrate policy-approved skill execution` + `feat: expose executable skills to agent runtime` |
-| — | 6.1 | ⬜ | — |
-| — | 6.2 | ⬜ | — |
-| — | 6.3 | ⬜ | — |
-| — | 6.4 | ⬜ | — |
-| — | 6.5 | ⬜ | — |
-| — | 6.6 | ⬜ | — |
+| 2026-08-14 | 6.1 | ✅ | `feat: implement wake word interface` |
+| 2026-08-14 | 6.2 | ✅ | `feat: implement speech-to-text pipeline` |
+| 2026-08-14 | 6.3 | ✅ | `feat: implement text-to-speech pipeline` |
+| 2026-08-14 | 6.4 | ✅ | `feat: implement voice sessions` |
+| 2026-08-14 | 6.5 | ✅ | `feat: implement voice interruption` |
+| 2026-08-14 | 6.6 | ✅ | `feat: complete conversational voice interface` |
+| 2026-08-14 | 6.7 | ✅ | `feat: implement observability panel` (subfase acrescentada — ver 6.7) |
+| 2026-08-14 | 6.8 | ✅ | `feat: serve voice and panel from one process` (subfase acrescentada — ver 6.8) |
 | — | 7.1 | ⬜ | — |
 | — | 7.2 | ⬜ | — |
 | — | 7.3 | ⬜ | — |

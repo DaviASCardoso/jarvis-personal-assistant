@@ -108,23 +108,30 @@ src/jarvis/
 ├── tools/         # Tool Abstraction + Router + MCP (Fase 5)
 │   ├── tool.py · schema.py · ports.py · registry.py · router.py · access.py · errors.py
 │   └── adapters/      # local_backend, mcp_config, mcp_protocol, mcp_stdio, mcp_client
-└── execution/     # Action Execution (Fase 5) — único que conhece policy+skills+tools
-    ├── identity.py · model.py · ports.py · events.py · orchestrator.py · consumer.py
-    └── adapters/      # sqlite_actions, event_audit
+├── execution/     # Action Execution (Fase 5) — único que conhece policy+skills+tools
+│   ├── identity.py · model.py · ports.py · events.py · orchestrator.py · consumer.py
+│   └── adapters/      # sqlite_actions, event_audit
+├── voice/         # Voice Interface (Fase 6) — importa só `jarvis.errors`
+│   ├── errors.py · audio.py · ports.py · vad.py · wake.py · session.py · loop.py
+│   └── adapters/      # sounddevice_audio, groq_stt, google_tts, wave_io,
+│                      #   wake_push_to_talk, wake_transcription, sqlite_sessions, retry
+└── interface/     # Observability Interface (Fase 6) — somente leitura
+    ├── errors.py · viewmodel.py · service.py · live.py
+    └── adapters/      # http_panel, page
 
 tests/               # estrutura plana; `factories.py` monta eventos, e
                      # `context_doubles.py`, `memory_doubles.py`, `agent_doubles.py`,
                      # `action_doubles.py` montam os doubles de teste
 docs/
 ├── README.md · architecture.md · architecture-contracts.md
-├── phase-1-plan.md … phase-5-plan.md       # planos aprovados das Fases 1–5
+├── phase-1-plan.md … phase-6-plan.md       # planos aprovados das Fases 1–6
 ├── event-system.md · context-system.md · memory-system.md · agent-runtime.md
 │                                           # documentação de implementação
-├── skills.md · mcp.md · security.md
-└── adr/                                    # 0001–0018
+├── skills.md · mcp.md · security.md · voice.md · interface.md
+└── adr/                                    # 0001–0025
 ```
 
-O projeto concluiu as Fases 1 a 5: existem Event System real (domínio, bus,
+O projeto concluiu as Fases 1 a 6: existem Event System real (domínio, bus,
 store SQLite, consumers), Context Engine real (observações com proveniência e TTL
 por campo, providers de tempo e dispositivo, agregação com conflitos explícitos,
 consumer de eventos, reconstrução a partir do Event Store e snapshots persistidos),
@@ -139,10 +146,18 @@ completa (Policy Engine determinístico, Skill Registry com Skills embutidas,
 Tool Router, cliente MCP sobre stdio, confirmação de ações de risco e trilha de
 auditoria em eventos).
 
-**Não** há Notification System, Trigger Engine nem Voice — esses seguem sem
-código. Consequência direta: o Agent Runtime **propõe e para**; `Decision.act` só
-vira execução via `--execute`, e `notify`/`ask` não entregam nada fora do
-terminal. `cli.py` é o composition root: único módulo que conhece Core,
+A Fase 6 acrescentou a camada de voz (wake word sem IA local, STT na Groq, TTS no
+Google Cloud, sessão persistida com retenção, interrupção) e o painel de
+observabilidade local — este **somente leitura**, sem nenhuma rota que inicie
+ação. `jarvis.voice` importa de `jarvis` apenas `jarvis.errors`; o resto do
+sistema chega por um port próprio implementado no composition root.
+
+**Não** há Notification System nem Trigger Engine — esses seguem sem código.
+Consequência direta: o Agent Runtime **propõe e para**; `Decision.act` só vira
+execução via `--execute` (ou `JARVIS_VOICE_EXECUTE_ACTIONS`), e `notify`/`ask`
+não entregam nada fora do terminal e do painel — o toast do painel é renderização
+de evento existente, não um Notification System (esse é a 7.3).
+`cli.py` é o composition root: único módulo que conhece Core,
 Infrastructure e Interfaces ao mesmo tempo, único que lê a credencial do LLM, e
 também quem aplica `Decision.memory` ao Memory System
 ([ADR-0018](docs/adr/0018-memory-writes-outside-the-policy-engine.md)) — o

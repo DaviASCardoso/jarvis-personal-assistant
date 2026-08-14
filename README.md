@@ -3,17 +3,18 @@
 Agente pessoal de IA, construído de forma incremental e orientado a eventos,
 contexto e memória.
 
-> **Status:** Fase 5 — Skills + MCP concluída. O Jarvis registra acontecimentos
-> como fatos imutáveis, os projeta em um estado atual consultável, lembra
-> (memórias tipadas, com proveniência, validade e ranking explicável), raciocina
-> sobre tudo isso com um LLM atrás de um port vendor-agnóstico e **age**: a
-> decisão passa por um Policy Engine determinístico antes de virar uma Skill
-> executada por ferramentas locais ou por MCP Servers externos, com trilha de
-> auditoria em eventos.
+> **Status:** Fase 6 — Voz e interface concluída. O Jarvis registra
+> acontecimentos como fatos imutáveis, os projeta em um estado atual consultável,
+> lembra (memórias tipadas, com proveniência, validade e ranking explicável),
+> raciocina sobre tudo isso com um LLM atrás de um port vendor-agnóstico e
+> **age**: a decisão passa por um Policy Engine determinístico antes de virar uma
+> Skill executada por ferramentas locais ou por MCP Servers externos, com trilha
+> de auditoria em eventos. Agora também **conversa por voz** e mostra tudo o que
+> está acontecendo num painel local.
 >
-> Falta voz (Fase 6) e proatividade (Fase 7): hoje quem dispara um turno é você,
-> pelo CLI. `notify`/`ask` não entregam nada fora do terminal, porque o
-> Notification System é a subfase 7.3. Planejamento completo em
+> Falta proatividade (Fase 7): hoje quem dispara um turno é você, pelo CLI ou
+> falando. `notify`/`ask` ainda não entregam nada fora do terminal e do painel,
+> porque o Notification System é a subfase 7.3. Planejamento completo em
 > [ROADMAP.md](ROADMAP.md).
 
 ## Requisitos
@@ -152,10 +153,56 @@ informação de sistema) e, opcionalmente, **MCP Servers** externos declarados e
 um `mcp.json`. Detalhes em [`docs/skills.md`](docs/skills.md),
 [`docs/mcp.md`](docs/mcp.md) e [`docs/security.md`](docs/security.md).
 
+### Falando com o Jarvis
+
+A voz exige um extra opcional — a única dependência de terceiros do projeto, e
+ela existe porque a biblioteca padrão não abre microfone
+([ADR-0020](docs/adr/0020-audio-io-ports-and-optional-backend.md)):
+
+```bash
+uv sync --extra voice
+```
+
+Duas credenciais a mais no `.env`: `JARVIS_GROQ_API_KEY` (transcrição) e
+`JARVIS_GOOGLE_TTS_API_KEY` (síntese).
+
+```bash
+uv run jarvis voice devices              # o que existe na máquina
+uv run jarvis voice say "Olá, tudo bem?" # testa a síntese
+uv run jarvis run                        # voz + painel, o modo normal de uso
+```
+
+No modo padrão a ativação é por tecla: pressione **Enter** e fale. `Ctrl-C`
+encerra. Para chamar pelo nome, `JARVIS_WAKE_STRATEGY=transcription`.
+
+> **O que sai do seu computador.** Com a voz ligada, o áudio dos seus enunciados
+> vai para a Groq e o texto das respostas vai para o Google. Com
+> `JARVIS_WAKE_STRATEGY=transcription`, trechos curtos do ambiente também são
+> enviados enquanto o modo de escuta estiver ativo — por isso ele **não** é o
+> padrão. Nenhum áudio é gravado em disco e nenhuma transcrição entra em evento
+> ([ADR-0025](docs/adr/0025-voice-transcripts-as-operational-state.md)); o que
+> fica registrado em `data/voice.db` expira em 7 dias por default.
+
+Interromper a resposta falando por cima funciona, e pressupõe fone —
+sem ele o alto-falante alimenta o microfone (`JARVIS_VOICE_BARGE_IN=false`
+desliga). Detalhes em [`docs/voice.md`](docs/voice.md).
+
+### Painel
+
+```bash
+uv run jarvis panel serve   # http://127.0.0.1:8765
+```
+
+Uma página com sete blocos: conversa, eventos, contexto atual, memórias
+recuperadas com score, decisões, ações com o veredito da política e ferramentas
+usadas. É **somente leitura** e só escuta em loopback — nenhuma rota inicia ação
+([ADR-0024](docs/adr/0024-observability-panel-as-snapshot-reader.md)).
+Detalhes em [`docs/interface.md`](docs/interface.md).
+
 ## Desenvolvimento
 
 ```bash
-uv run pytest             # testes — sem rede, sem credencial, sem quota
+uv run pytest             # testes — sem rede, sem credencial, sem áudio, sem quota
 uv run pytest -m external # smoke test contra a API real (opcional, exige chave)
 uv run ruff format .      # formatação
 uv run ruff check .       # lint
@@ -185,7 +232,8 @@ autorização** em vigor — ela decide entre uma ação permitida e uma negada,
 deve ser adivinhada.
 
 Os dados locais ficam em `data/`: `events.db`, `context.db`, `memory.db`,
-`actions.db` e o workspace das skills de arquivo. Nenhum deles é versionado.
+`actions.db`, `voice.db` e o workspace das skills de arquivo. Nenhum deles é
+versionado.
 
 ## Sobre containers
 
