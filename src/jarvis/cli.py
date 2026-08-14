@@ -870,7 +870,7 @@ def _reply(decision: Decision, write: MemoryWrite) -> str | None:
     return REMEMBER_SAVED_MESSAGE if write.stored is not None else None
 
 
-def _print_turn(turn: AgentTurn, *, write: MemoryWrite) -> None:
+def _print_turn(turn: AgentTurn, *, write: MemoryWrite, submitting: bool = False) -> None:
     decision = turn.decision
     print(f"decision    {decision.type.value}")
     print(f"reason      {decision.reason}")
@@ -890,7 +890,8 @@ def _print_turn(turn: AgentTurn, *, write: MemoryWrite) -> None:
         print(f"            proposta recusada: {write.rejected}")
     if decision.action is not None:
         print(f"action      {decision.action.skill} {json.dumps(dict(decision.action.parameters))}")
-        print("            proposta não executada: use --execute para submetê-la à política")
+        if not submitting:
+            print("            proposta não executada: use --execute para submetê-la à política")
     if turn.importance is not None:
         assessment = turn.importance
         print(
@@ -1059,9 +1060,10 @@ def _agent_ask(args: argparse.Namespace, settings: Settings) -> int:
         write = _persist_memory_proposal(
             turn, build_memory_manager(memories), provenance=USER_ASSERTION
         )
-        _print_turn(turn, write=write)
+        submitting = args.execute and turn.decision.proposes_action
+        _print_turn(turn, write=write, submitting=submitting)
 
-        if args.execute and turn.decision.proposes_action:
+        if submitting:
             outcome = _submit_proposal(
                 settings, turn=turn, store=store, skills=skills, actor=Actor.USER
             )
@@ -1140,9 +1142,10 @@ def _agent_react(args: argparse.Namespace, settings: Settings) -> int:
             build_memory_manager(memories),
             provenance=Provenance(origin=MemoryOrigin.EVENT, reference=recorded.event.event_id),
         )
-        _print_turn(turn, write=write)
+        submitting = args.execute and turn.decision.proposes_action
+        _print_turn(turn, write=write, submitting=submitting)
 
-        if args.execute and turn.decision.proposes_action:
+        if submitting:
             # `Actor.EVENT`: ninguém pediu isto. É o que faz uma skill
             # `conditional` exigir confirmação em vez de executar direto.
             outcome = _submit_proposal(

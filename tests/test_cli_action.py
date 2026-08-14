@@ -337,6 +337,25 @@ class TestAgentExecute:
 
         assert "status      completed" in capsys.readouterr().out
 
+    def test_a_submitted_proposal_is_not_announced_as_unexecuted(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A dica de `--execute` é resquício da Fase 4: sai quando há submissão.
+
+        Imprimi-la junto do desfecho diria, no mesmo bloco, que a ação não foi
+        executada e que ela terminou — a saída contradiria a si mesma.
+        """
+        provider = StubLLMProvider(
+            [decision_json(type="act", message=None, action={"skill": "system.status"})]
+        )
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+
+        assert main(["agent", "ask", "como está o sistema", "--execute"]) == 0
+
+        out = capsys.readouterr().out
+        assert "não executada" not in out
+        assert "status      completed" in out
+
     def test_without_execute_nothing_runs(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
