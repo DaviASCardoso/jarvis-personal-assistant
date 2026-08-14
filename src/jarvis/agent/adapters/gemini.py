@@ -83,7 +83,19 @@ _DECISION_RESPONSE_SCHEMA: Final[dict[str, object]] = {
             "type": "object",
             "properties": {
                 "skill": {"type": "string"},
-                "parameters": {"type": "object"},
+                # Texto, e não objeto, por limitação medida do `responseSchema`:
+                # o subconjunto OpenAPI não expressa "objeto de forma livre", e
+                # um `{"type": "object"}` sem `properties` faz o modelo devolver
+                # `{}` em toda chamada — o que tornaria `act` inútil para
+                # qualquer Skill com parâmetro obrigatório. Volta a ser objeto em
+                # `_decode_action_parameters`, antes de o Core ver o texto.
+                "parameters": {
+                    "type": "string",
+                    "description": (
+                        "Os parâmetros da skill como documento JSON. "
+                        'Exemplo: {"path": "nota.txt", "content": "oi"}'
+                    ),
+                },
             },
             "required": ["skill"],
         },
@@ -230,11 +242,50 @@ class GeminiLLMProvider:
             )
 
         stop_reason = _stop_reason(candidate.get("finishReason"))
-        text = _candidate_text(candidate)
+        text = _decode_action_parameters(_candidate_text(candidate))
         if not text and stop_reason is StopReason.COMPLETE:
             raise LLMInvalidResponseError(f"{self._model} devolveu texto vazio")
 
         return LLMResponse(text=text, stop_reason=stop_reason, model=self._model, usage=usage)
+
+
+def _decode_action_parameters(text: str) -> str:
+    """Desfaz a codificação que o `responseSchema` do Gemini obriga.
+
+    Tradução de vendor, e por isso mora no adapter: o Core continua recebendo
+    `action.parameters` como objeto, exatamente como `ActionProposal` exige, sem
+    saber que no fio ele viajou como texto.
+
+    Nada aqui inventa parâmetro. Quando a decodificação não é possível, o texto
+    segue intacto e quem recusa é o Core — errar para o lado da proposta
+    rejeitada é o desfecho seguro quando o assunto é o que será executado.
+    """
+    try:
+        payload: object = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return text
+    if not isinstance(payload, dict):
+        return text
+
+    action = payload.get("action")
+    if not isinstance(action, dict):
+        return text
+    raw = action.get("parameters")
+    if not isinstance(raw, str):
+        return text
+
+    if not raw.strip():
+        # "sem parâmetros" dito como texto vazio: uma Skill sem campo
+        # obrigatório é atendida, e uma com campo obrigatório continua sendo
+        # recusada pela validação de schema, mais adiante.
+        action["parameters"] = {}
+        return json.dumps(payload)
+
+    try:
+        action["parameters"] = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return text
+    return json.dumps(payload)
 
 
 def _first_candidate(payload: Mapping[str, object]) -> Mapping[str, object] | None:

@@ -122,6 +122,18 @@ def test_generation_parameters_are_translated() -> None:
     ]
 
 
+def test_action_parameters_are_requested_as_text_not_as_an_object() -> None:
+    """Medido contra a API real: `{"type": "object"}` sem `properties` faz o
+    modelo devolver `{}` em toda chamada, o que tornaria `act` inútil para
+    qualquer Skill com parâmetro obrigatório (ADR-0019)."""
+    opener = fake_opener()
+
+    provider(opener).generate(request())
+
+    action = sent(opener)["generationConfig"]["responseSchema"]["properties"]["action"]
+    assert action["properties"]["parameters"]["type"] == "string"
+
+
 def test_a_text_request_does_not_ask_for_json() -> None:
     opener = fake_opener()
 
@@ -161,6 +173,62 @@ def test_a_normal_response_is_parsed_whole() -> None:
     assert response.usage.input_tokens == 120
     assert response.usage.output_tokens == 15
     assert response.model.vendor == "google"
+
+
+def _act(parameters: Any) -> bytes:
+    return gemini_body(
+        text=json.dumps(
+            {
+                "type": "act",
+                "reason": "o usuário pediu",
+                "action": {"skill": "file.write", "parameters": parameters},
+            }
+        )
+    )
+
+
+def test_action_parameters_come_back_as_an_object_for_the_core() -> None:
+    """O Core exige `Mapping`; o fio entrega texto. Traduzir é papel do adapter."""
+    opener = fake_opener(_act('{"path": "nota.txt", "content": "oi"}'))
+
+    response = provider(opener).generate(request())
+
+    assert json.loads(response.text)["action"]["parameters"] == {
+        "path": "nota.txt",
+        "content": "oi",
+    }
+
+
+def test_empty_parameter_text_means_no_parameters() -> None:
+    opener = fake_opener(_act(""))
+
+    response = provider(opener).generate(request())
+
+    assert json.loads(response.text)["action"]["parameters"] == {}
+
+
+def test_parameters_that_are_not_json_are_left_for_the_core_to_refuse() -> None:
+    """Nada aqui inventa parâmetro: texto indecifrável vira proposta recusada,
+    não uma execução com campos adivinhados."""
+    opener = fake_opener(_act("path=nota.txt"))
+
+    response = provider(opener).generate(request())
+
+    assert json.loads(response.text)["action"]["parameters"] == "path=nota.txt"
+
+
+def test_parameters_already_sent_as_an_object_are_untouched() -> None:
+    opener = fake_opener(_act({"path": "nota.txt"}))
+
+    response = provider(opener).generate(request())
+
+    assert json.loads(response.text)["action"]["parameters"] == {"path": "nota.txt"}
+
+
+def test_a_response_without_an_action_is_returned_verbatim() -> None:
+    opener = fake_opener(gemini_body(text='{"type": "ignore", "reason": "nada"}'))
+
+    assert provider(opener).generate(request()).text == '{"type": "ignore", "reason": "nada"}'
 
 
 def test_multiple_parts_are_concatenated() -> None:
