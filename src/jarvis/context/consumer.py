@@ -26,7 +26,7 @@ from typing import Final
 
 from jarvis.context.aggregator import ContextAggregator
 from jarvis.context.model import ContextUpdate
-from jarvis.context.observation import Observation, require_label
+from jarvis.context.observation import Observation, require_identifier, require_label
 from jarvis.events.event import Event, RecordedEvent
 
 logger = logging.getLogger(__name__)
@@ -67,7 +67,9 @@ def _activity_ended(event: Event) -> ContextUpdate:
 
 
 def _voice_session_started(event: Event) -> ContextUpdate:
-    session_id = require_label(event.payload.get("session_id"), field_name="payload.session_id")
+    session_id = require_identifier(
+        event.payload.get("session_id"), field_name="payload.session_id"
+    )
     return ContextUpdate(conversation=_observed(event, session_id))
 
 

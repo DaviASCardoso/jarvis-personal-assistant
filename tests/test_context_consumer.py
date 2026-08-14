@@ -103,11 +103,13 @@ class TestTranslation:
     def test_a_voice_session_fills_the_conversation_field(self) -> None:
         consumer, aggregator = build()
 
-        deliver(consumer, "voice.session_started", {"session_id": "s-1"})
+        # Session IDs reais são UUID4 (36 caracteres)
+        session_id = "2a9bc41d-b834-4e85-b5ec-26732dc212be"
+        deliver(consumer, "voice.session_started", {"session_id": session_id})
 
         active = aggregator.get_current_context().conversation.active_id
         assert active is not None
-        assert active.value == "s-1"
+        assert active.value == session_id
         assert active.source == "event:voice.session_started"
 
     def test_ending_a_session_records_an_observed_absence(self) -> None:
