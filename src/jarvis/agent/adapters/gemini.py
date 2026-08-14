@@ -47,7 +47,10 @@ API_BASE: Final = "https://generativelanguage.googleapis.com/v1beta/models"
 # Modelo do tier gratuito do AI Studio. É default de **configuração**
 # (`JARVIS_GEMINI_MODEL`), não constante de contrato: o catálogo do provider muda
 # mais rápido que este repositório, e um rename não deve exigir mudança de código.
-DEFAULT_GEMINI_MODEL: Final = "gemini-2.0-flash"
+# O default anterior (`gemini-2.0-flash`) foi aposentado e passou a responder 404
+# — o risco previsto no plano da Fase 4 se concretizou; conferir disponibilidade
+# ao trocar.
+DEFAULT_GEMINI_MODEL: Final = "gemini-3.6-flash"
 
 # `role` do lado do modelo na API: o Core chama de `assistant`, o Gemini de `model`.
 _ROLE_NAMES: Final[Mapping[Role, str]] = {Role.USER: "user", Role.ASSISTANT: "model"}

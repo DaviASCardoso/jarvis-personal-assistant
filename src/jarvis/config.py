@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     llm_provider: LLMProviderName = "gemini"
     gemini_api_key: SecretStr | None = None
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-3.6-flash"
     llm_timeout_seconds: float = 30.0
     llm_max_output_tokens: int = 1024
     llm_temperature: float = 0.2
