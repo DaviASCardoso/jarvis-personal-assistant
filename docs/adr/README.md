@@ -82,3 +82,4 @@ original fazia sentido no momento em que foi tomada.
 | [0016](0016-action-execution-orchestrator.md) | `jarvis/execution` como único caminho até uma Skill | Accepted |
 | [0017](0017-audit-trail-as-events.md) | Trilha de auditoria como eventos, sem store de auditoria próprio | Accepted |
 | [0018](0018-memory-writes-outside-the-policy-engine.md) | Proposta de memória aplicada pelo composition root, fora do Policy Engine | Accepted |
+| [0019](0019-gemini-action-parameters-as-json-text.md) | `action.parameters` transportado como texto JSON no adapter Gemini | Accepted |

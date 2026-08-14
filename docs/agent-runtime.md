@@ -111,8 +111,9 @@ O port não tem superfície de tool-calling nem de JSON Schema — ver
 | Endpoint | `POST https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent` |
 | Transporte | `urllib.request` da stdlib; **nenhum SDK de vendor** ([ADR-0011](adr/0011-gemini-rest-llm-adapter.md)) |
 | Autenticação | header `x-goog-api-key` — nunca na query string, que vaza em log de exceção e proxy |
-| Structured output | `generationConfig.responseMimeType = "application/json"`; a validação autoritativa é do Core |
-| Modelo | `JARVIS_GEMINI_MODEL`, default `gemini-2.0-flash` (tier gratuito) |
+| Structured output | `responseMimeType = "application/json"` + `responseSchema`; a validação autoritativa continua sendo do Core |
+| `action.parameters` | viaja como **texto JSON** e é decodificado no adapter ([ADR-0019](adr/0019-gemini-action-parameters-as-json-text.md)) |
+| Modelo | `JARVIS_GEMINI_MODEL`, default `gemini-3.6-flash` (tier gratuito) |
 | Testabilidade | o transporte é injetável (`opener`), então corpo, parsing e erros são testados sem rede |
 
 Tradução de erro (nenhuma exceção nativa chega ao Core):
@@ -176,6 +177,7 @@ prompt mutilado em silêncio. O que foi omitido é informado ao modelo em
 - **Timeout**: um único mecanismo, `LLMRequest.timeout_seconds`, aplicado pelo adapter.
 - **Retry de transporte** (`LLMRetryPolicy`, no Core): só quando o erro se declara `retryable`; `max_attempts=2` por default para não queimar quota gratuita; respeita o `Retry-After` do provider quando existe; `sleep` é injetável, então nenhum teste dorme.
 - **Reparo de conteúdo**: uma tentativa, reenviando o envelope com um pedido curto de correção de formato. Falhando a segunda, `InvalidDecisionError` sobe.
+- **Truncagem** (`StopReason.MAX_TOKENS`): tratada antes do parsing, e não como erro de formato. Um JSON cortado no meio de uma string não volta válido por insistir no formato — o que falta é brevidade, então o reparo pede concisão (`TRUNCATION_HINT`). Persistindo, `LLMInvalidResponseError` nomeia a causa: orçamento de saída ou modelo que se repete.
 - **Sem limitador de taxa client-side**: o que existe é 429 mapeado, retries limitados, uma chamada por turno e a triagem cortando o caminho proativo. Gatilho para acrescentar: 429 recorrente em uso normal.
 
 ## Observabilidade
@@ -183,7 +185,7 @@ prompt mutilado em silêncio. O que foi omitido é informado ao modelo em
 Logs estruturados, um por passo relevante, sempre com `correlation_id`:
 `agent.turn_started`, `agent.triage_skipped`, `agent.prompt_trimmed`,
 `agent.llm_called`, `agent.llm_failed`, `agent.decision_invalid`,
-`agent.decided`.
+`agent.response_truncated`, `agent.decided`.
 
 **Nenhum deles contém** prompt, resposta do modelo, conteúdo de memória,
 payload de evento, `message` da decisão ou credencial —
@@ -199,7 +201,7 @@ Cadeia reconstruível: `Event.correlation_id` → `Decision.correlation_id` →
 |---|---|---|
 | `JARVIS_LLM_PROVIDER` | `gemini` | configuração |
 | `JARVIS_GEMINI_API_KEY` | — | **secret** (`SecretStr`) |
-| `JARVIS_GEMINI_MODEL` | `gemini-2.0-flash` | configuração |
+| `JARVIS_GEMINI_MODEL` | `gemini-3.6-flash` | configuração |
 | `JARVIS_LLM_TIMEOUT_SECONDS` | `30` | configuração |
 | `JARVIS_LLM_MAX_OUTPUT_TOKENS` | `1024` | configuração |
 | `JARVIS_LLM_TEMPERATURE` | `0.2` | configuração |
@@ -223,8 +225,10 @@ jarvis agent react --event-id <id de um evento registrado>
 Sem `JARVIS_GEMINI_API_KEY` os três falham com mensagem explícita e código de
 saída 1; todo o resto do Jarvis continua funcionando offline.
 
-Para `act`/`act_and_notify` a saída imprime, literalmente,
-`proposta não executada: use --execute para submetê-la à política`.
+Para `act`/`act_and_notify` **sem** `--execute` a saída imprime, literalmente,
+`proposta não executada: use --execute para submetê-la à política`. Com a flag a
+dica some: quem submeteu lê o desfecho real logo abaixo, e as duas linhas juntas
+se contradiriam.
 
 ## Execução (desde a Fase 5)
 
