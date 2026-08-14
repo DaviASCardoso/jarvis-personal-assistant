@@ -346,6 +346,29 @@ contínuos de alto volume, não uma introdução local de `asyncio`.
 Payload malformado ⇒ `InvalidMemoryError` (permanente) ⇒ dead-letter sem
 retry, sem desfazer o evento já registrado.
 
+## Escrita vinda do Agent Runtime
+
+O terceiro produtor de memória, além de `jarvis memory add` e do consumer de
+eventos: `Decision.memory`, aplicada pelo **composition root** — nunca pelo
+runtime, que continua sem escrever nada
+([ADR-0018](adr/0018-memory-writes-outside-the-policy-engine.md)).
+
+| entrada | `origin` | `reference` |
+|---|---|---|
+| `agent ask` / `agent chat` | `USER` | nenhuma |
+| `agent react` | `EVENT` | o `event_id` do gatilho |
+
+Sem `reference` no caminho do usuário porque `find_duplicate` exige a **mesma**
+`reference`: apontar para um `decision_id` novo a cada turno faria cada
+repetição da mesma afirmação virar linha nova em vez de reforço. No caminho do
+evento a referência é a mesma que o `MemoryEventConsumer` grava, então as duas
+rotas convergem na mesma memória em vez de duplicá-la.
+
+`MemoryProposal` (em `agent/decision.py`) é mais permissivo que `Memory`: não
+tem `scope` nem `valid_until`, então uma proposta `task`, `working`, ou
+`preference` sem `subject` passa na validação da decisão e é recusada aqui. A
+recusa é da proposta, não do turno — o CLI imprime o motivo e segue.
+
 ## Ponte com o Context Engine
 
 `context_to_query` (`memory/adapters/context_bridge.py`) traduz

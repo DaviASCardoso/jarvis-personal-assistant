@@ -650,6 +650,10 @@ feat: implement agent runtime
 > `act` volta como proposta inerte (não há Policy Engine nem Skills até a
 > Fase 5), `remember` não grava e `notify`/`ask` não entregam nada (o
 > Notification System é a 7.3). Ver `docs/phase-4-plan.md §3` (V-3).
+>
+> Depois desta subfase: `act` virou execução real na Fase 5 (ADR-0016) e
+> `remember` passou a gravar, aplicado pelo composition root (ADR-0018).
+> `notify`/`ask` seguem sem entrega até a 7.3.
 
 **Commit esperado:**
 

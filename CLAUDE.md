@@ -89,48 +89,64 @@ src/jarvis/
 │   ├── manager.py      # MemoryManager (remember, retrieve, ciclo de vida, reembed, consolidate)
 │   └── adapters/       # Infrastructure: sqlite_repository, hashing_embeddings,
 │                       #   event_consumer, context_bridge
-└── agent/         # Agent Runtime (Fase 4)
-    ├── errors.py       # InvalidDecisionError, LLM*Error, PromptTooLargeError
-    ├── messages.py     # Role, Message, LLMRequest/Response, StopReason, TokenUsage
-    ├── ports.py        # LLMProvider (Protocol)
-    ├── decision.py     # DecisionType, MemoryProposal, ActionProposal, Decision, parse_decision
-    ├── conversation.py # ConversationTurn, Conversation (em memória, não persistida)
-    ├── input.py        # UserMessage, EventTrigger, EventSummary, AgentInput
-    ├── importance.py   # ImportanceWeights/Assessment, assess(), should_reason()
-    ├── prompt.py       # SYSTEM_INSTRUCTION, ReasoningEnvelope, PromptBudget, PromptBuilder
-    ├── runtime.py      # AgentRuntime, AgentTurn, LLMRetryPolicy, GenerationDefaults
-    └── adapters/       # Infrastructure: gemini (REST via urllib, sem SDK)
+├── agent/         # Agent Runtime (Fase 4)
+│   ├── errors.py       # InvalidDecisionError, LLM*Error, PromptTooLargeError
+│   ├── messages.py     # Role, Message, LLMRequest/Response, StopReason, TokenUsage
+│   ├── ports.py        # LLMProvider (Protocol)
+│   ├── decision.py     # DecisionType, MemoryProposal, ActionProposal, Decision, parse_decision
+│   ├── conversation.py # ConversationTurn, Conversation (em memória, não persistida)
+│   ├── input.py        # UserMessage, EventTrigger, EventSummary, ActionResultSummary
+│   ├── importance.py   # ImportanceWeights/Assessment, assess(), should_reason()
+│   ├── prompt.py       # SYSTEM_INSTRUCTION, ReasoningEnvelope, PromptBudget, PromptBuilder
+│   ├── runtime.py      # AgentRuntime, AgentTurn, LLMRetryPolicy, GenerationDefaults
+│   └── adapters/       # Infrastructure: gemini (REST via urllib, sem SDK)
+├── policy/        # Policy Engine (Fase 5)
+│   ├── vocabulary.py · rules.py · verdict.py · engine.py · errors.py · ports.py
+├── skills/        # Skill Framework (Fase 5)
+│   ├── skill.py · registry.py · errors.py
+│   └── builtin/       # register_builtin_skills: files.py, system.py
+├── tools/         # Tool Abstraction + Router + MCP (Fase 5)
+│   ├── tool.py · schema.py · ports.py · registry.py · router.py · access.py · errors.py
+│   └── adapters/      # local_backend, mcp_config, mcp_protocol, mcp_stdio, mcp_client
+└── execution/     # Action Execution (Fase 5) — único que conhece policy+skills+tools
+    ├── identity.py · model.py · ports.py · events.py · orchestrator.py · consumer.py
+    └── adapters/      # sqlite_actions, event_audit
 
 tests/               # estrutura plana; `factories.py` monta eventos, e
-                     # `context_doubles.py`, `memory_doubles.py`, `agent_doubles.py`
-                     # montam os doubles de teste
+                     # `context_doubles.py`, `memory_doubles.py`, `agent_doubles.py`,
+                     # `action_doubles.py` montam os doubles de teste
 docs/
 ├── README.md · architecture.md · architecture-contracts.md
-├── phase-1-plan.md … phase-4-plan.md       # planos aprovados das Fases 1–4
+├── phase-1-plan.md … phase-5-plan.md       # planos aprovados das Fases 1–5
 ├── event-system.md · context-system.md · memory-system.md · agent-runtime.md
 │                                           # documentação de implementação
-├── skills.md · mcp.md · security.md        # ainda conceituais
-└── adr/                                    # 0001–0012
+├── skills.md · mcp.md · security.md
+└── adr/                                    # 0001–0018
 ```
 
-O projeto concluiu as Fases 1 a 4: existem Event System real (domínio, bus,
+O projeto concluiu as Fases 1 a 5: existem Event System real (domínio, bus,
 store SQLite, consumers), Context Engine real (observações com proveniência e TTL
 por campo, providers de tempo e dispositivo, agregação com conflitos explícitos,
 consumer de eventos, reconstrução a partir do Event Store e snapshots persistidos),
 Memory System real (memória imutável com supersessão, `EmbeddingProvider`
 independente de LLM, retrieval estruturado e semântico, ranking explicável,
 ciclo de vida completo, consolidação por deduplicação/contradição/promoção,
-integração de mão única com Event System e Context Engine) e Agent Runtime real
+integração de mão única com Event System e Context Engine), Agent Runtime real
 (`LLMProvider` vendor-agnóstico com adapter Gemini em nuvem, `Decision`
 estruturada e validada, Importance Engine determinístico pré-LLM, prompt
-assembly com orçamento, retry/timeout/observabilidade).
+assembly com orçamento, retry/timeout/observabilidade) e a cadeia de execução
+completa (Policy Engine determinístico, Skill Registry com Skills embutidas,
+Tool Router, cliente MCP sobre stdio, confirmação de ações de risco e trilha de
+auditoria em eventos).
 
-**Não** há Policy Engine, Skills, MCP, Notification System ou Voice — esses
-seguem sem código. Consequência direta: o Agent Runtime **propõe e para**;
-`Decision.act` volta como proposta não executada, `remember` não grava e
-`notify`/`ask` não entregam nada. `cli.py` é o composition root: único módulo
-que conhece Core, Infrastructure e Interfaces ao mesmo tempo, e único que lê a
-credencial do LLM.
+**Não** há Notification System, Trigger Engine nem Voice — esses seguem sem
+código. Consequência direta: o Agent Runtime **propõe e para**; `Decision.act` só
+vira execução via `--execute`, e `notify`/`ask` não entregam nada fora do
+terminal. `cli.py` é o composition root: único módulo que conhece Core,
+Infrastructure e Interfaces ao mesmo tempo, único que lê a credencial do LLM, e
+também quem aplica `Decision.memory` ao Memory System
+([ADR-0018](docs/adr/0018-memory-writes-outside-the-policy-engine.md)) — o
+runtime continua sem escrever nada.
 
 O padrão estabelecido na Fase 1 para um componente novo é `src/jarvis/<componente>/`
 com módulos de Core na raiz e um subpacote `adapters/` — **não** a separação física
@@ -268,9 +284,12 @@ Detalhe completo: [`architecture-contracts.md §8`](docs/architecture-contracts.
   qualquer abstração sem consumidor real — princípio explícito da 0.3
   (`architecture-contracts.md §1`) e do `ROADMAP.md` (regra 11).
 - **Não fazer o Agent Runtime aplicar as decisões que produz.** Ele monta
-  contexto, raciocina e devolve uma `Decision`; gravar a memória proposta,
-  entregar a notificação ou executar a Skill depende de componentes que ainda
-  não existem (Policy Engine e Skills na Fase 5, Notification na 7.3). Dar
+  contexto, raciocina e devolve uma `Decision`; quem aplica é sempre o
+  composition root — `ActionExecutor` para `Decision.action`
+  ([ADR-0016](docs/adr/0016-action-execution-orchestrator.md)), `MemoryManager`
+  para `Decision.memory`
+  ([ADR-0018](docs/adr/0018-memory-writes-outside-the-policy-engine.md)); a
+  notificação depende do Notification System (7.3), que ainda não existe. Dar
   esse atalho ao runtime quebraria o [ADR-0003](docs/adr/0003-policy-engine-safety-authority.md)
   e os testes estruturais de `tests/test_agent_architecture.py`.
 - Manter o código executável ao final de cada subfase: `uv run pytest`,

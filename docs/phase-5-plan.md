@@ -1604,6 +1604,11 @@ A spec §46 menciona "a Memory permite que o Jarvis aprenda com o histórico".
 `Decision.remember` continua sendo proposta não gravada; fechar esse laço é
 trabalho da fase que tratar de aprendizado, não desta.
 
+> Fechado depois desta fase, e **sem** Skill: o composition root aplica
+> `Decision.memory` direto no `MemoryManager`. Uma Skill `memory.write` foi
+> considerada e descartada — ver
+> [ADR-0018](adr/0018-memory-writes-outside-the-policy-engine.md).
+
 ---
 
 ## 34. Estrutura esperada do repositório ao final

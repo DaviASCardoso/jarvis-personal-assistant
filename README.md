@@ -105,6 +105,13 @@ ação — por isso `--execute` é opt-in. Um evento de baixa importância vira
 silêncio sem sequer chamar o modelo. Detalhes em
 [`docs/agent-runtime.md`](docs/agent-runtime.md).
 
+O que o agente decide **lembrar** é gravado no Memory System pelo composition
+root, sem `--execute` e sem passar pela política: uma afirmação não é uma
+capacidade, não toca nada fora do processo e se desfaz por supersessão
+([ADR-0018](docs/adr/0018-memory-writes-outside-the-policy-engine.md)). A saída
+diz o que aconteceu — `gravada como <id>`, `reforçada como <id>` ou `proposta
+recusada: <motivo>` — e o que foi gravado volta no próximo prompt.
+
 ### Skills, tools e ações
 
 ```bash

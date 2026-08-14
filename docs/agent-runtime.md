@@ -53,7 +53,9 @@ houve), os ids das memórias consultadas, o uso de tokens e a latência.
 
 **O que o loop não faz, por decisão e não por omissão:** não grava memória, não
 emite evento, não captura snapshot, não escreve em disco. O único efeito
-externo de um turno é a chamada HTTP feita pelo adapter.
+externo de um turno é a chamada HTTP feita pelo adapter. Quem aplica a proposta
+de memória é o composition root, depois de receber o `AgentTurn` — ver
+[ADR-0018](adr/0018-memory-writes-outside-the-policy-engine.md).
 
 ## Duas entradas, dois tratamentos
 
@@ -254,10 +256,37 @@ e a seção `last_action_result`; capacidades entraram na escada de corte por
 contexto, mas não cortá-las nunca faria um registry grande estourar o orçamento
 sem saída.
 
+## Gravação de memória
+
+O outro laço que se fecha fora do runtime. `cli._persist_memory_proposal` aplica
+`decision.memory` logo depois do turno, antes de imprimi-lo — mesmo desenho da
+ação, sem Policy Engine e sem `--execute`, pelos motivos do
+[ADR-0018](adr/0018-memory-writes-outside-the-policy-engine.md): gravar uma
+afirmação não toca nada fora do processo e se desfaz por supersessão.
+
+- Vale para **qualquer** decisão que carregue `memory`, não só `remember` — a
+  matriz de forma permite `notify` com proposta junto.
+- A proveniência segue o caminho de entrada: `USER` sem referência em
+  `ask`/`chat`, `EVENT` com o `event_id` do gatilho em `react`. Sem referência no
+  caminho do usuário porque `find_duplicate` exige a **mesma** `reference`:
+  apontar para um `decision_id` novo a cada turno faria cada repetição da mesma
+  afirmação virar linha nova em vez de reforço.
+- `MemoryProposal` é mais permissivo que `Memory` (não tem `scope` nem
+  `valid_until`). Uma proposta que o domínio recusa — `preference` sem
+  `subject`, por exemplo — é **recusada sozinha**: a saída imprime o motivo, e a
+  mensagem e a ação da mesma decisão continuam valendo.
+- A saída distingue os três desfechos: `gravada como <id>`, `reforçada como
+  <id>`, `proposta recusada: <motivo>`. Um `remember` puro não tem `message`, e
+  a confirmação (`Anotado.`) é o que o usuário lê e o que a conversa guarda como
+  turno do assistente.
+
+`AgentRuntime` **não** mudou: `tests/test_agent_runtime.py` continua afirmando
+que o runtime não grava memória.
+
 ## Limitações conhecidas
 
-- **`remember` ainda não grava**, e `notify`/`ask` não entregam nada: falta o
-  Notification System (7.3). Só `act` virou execução real.
+- **`notify`/`ask` não entregam nada**: falta o Notification System (7.3). A
+  mensagem só chega ao usuário se ele estiver olhando o terminal.
 - **O agente não emite eventos.** Registrar decisões de forma consultável é a
   subfase 7.4 — a trilha de execução (`action.*`, `policy.evaluated`) é emitida
   pela camada de ação, não por ele.

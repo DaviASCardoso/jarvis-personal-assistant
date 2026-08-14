@@ -81,3 +81,4 @@ original fazia sentido no momento em que foi tomada.
 | [0015](0015-stdlib-stdio-mcp-client.md) | Cliente MCP próprio, síncrono, sobre stdio da biblioteca padrão | Accepted |
 | [0016](0016-action-execution-orchestrator.md) | `jarvis/execution` como único caminho até uma Skill | Accepted |
 | [0017](0017-audit-trail-as-events.md) | Trilha de auditoria como eventos, sem store de auditoria próprio | Accepted |
+| [0018](0018-memory-writes-outside-the-policy-engine.md) | Proposta de memória aplicada pelo composition root, fora do Policy Engine | Accepted |
