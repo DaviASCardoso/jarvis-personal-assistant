@@ -1494,12 +1494,12 @@ O sistema consegue raciocinar sobre acontecimentos.
 **Semana 11**
 
 ```text
-[ ] Skills
-[ ] Tools
-[ ] MCP
-[ ] Router
-[ ] Permissions
-[ ] Confirmation
+[x] Skills
+[x] Tools
+[x] MCP
+[x] Router
+[x] Permissions
+[x] Confirmation
 ```
 
 O sistema consegue agir.
@@ -1797,16 +1797,16 @@ TTS
 | 2026-08-12 | 4.5 | ✅ | `feat: implement prompt assembly` |
 | 2026-08-12 | 4.6 | ✅ | `feat: implement agent event loop` |
 | 2026-08-12 | 4.7 | ✅ | `feat: complete autonomous reasoning core` |
-| — | 5.1 | ⬜ | — |
-| — | 5.2 | ⬜ | — |
-| — | 5.3 | ⬜ | — |
-| — | 5.4 | ⬜ | — |
-| — | 5.5 | ⬜ | — |
-| — | 5.6 | ⬜ | — |
-| — | 5.7 | ⬜ | — |
-| — | 5.8 | ⬜ | — |
-| — | 5.9 | ⬜ | — |
-| — | 5.10 | ⬜ | — |
+| 2026-08-13 | 5.1 | ✅ | `feat: add declarative skill framework` |
+| 2026-08-13 | 5.2 | ✅ | `feat: add declarative skill framework` |
+| 2026-08-13 | 5.3 | ✅ | `feat: add tool contracts and audited routing` |
+| 2026-08-13 | 5.4 | ✅ | `feat: add stdio MCP protocol transport` + `feat: add resilient MCP client integration` |
+| 2026-08-13 | 5.5 | ✅ | `feat: add tool contracts and audited routing` + `feat: add sandboxed local tool backend` |
+| 2026-08-13 | 5.6 | ✅ | `feat: add built-in file and system skills` |
+| — | 5.7 | ⬜ | fora de escopo da Fase 5 (OAuth/integração externa) — ver 5.7 |
+| — | 5.8 | ⬜ | fora de escopo da Fase 5 (OAuth/integração externa) — ver 5.8 |
+| 2026-08-13 | 5.9 | ✅ | `feat: persist pending action state` + `feat: add CLI commands for skills and actions` |
+| 2026-08-13 | 5.10 | ✅ | `feat: orchestrate policy-approved skill execution` + `feat: expose executable skills to agent runtime` |
 | — | 6.1 | ⬜ | — |
 | — | 6.2 | ⬜ | — |
 | — | 6.3 | ⬜ | — |
