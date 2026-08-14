@@ -103,9 +103,10 @@ class GoogleCloudTextToSpeech:
         retry: RetryPolicy | None = None,
         sleep: Callable[[float], None] | None = None,
     ) -> None:
-        if not api_key.strip():
+        cleaned_key = api_key.strip()
+        if not cleaned_key:
             raise TtsAuthenticationError("credencial do Google Cloud TTS ausente")
-        self._api_key = api_key
+        self._api_key = cleaned_key
         self._voice = voice
         self._language = language
         self._speaking_rate = speaking_rate

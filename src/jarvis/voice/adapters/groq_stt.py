@@ -110,9 +110,10 @@ class GroqSpeechToText:
         retry: RetryPolicy | None = None,
         sleep: Callable[[float], None] | None = None,
     ) -> None:
-        if not api_key.strip():
+        cleaned_key = api_key.strip()
+        if not cleaned_key:
             raise SttAuthenticationError("credencial da Groq ausente")
-        self._api_key = api_key
+        self._api_key = cleaned_key
         self._model = model
         self._opener = opener
         self._retry = retry if retry is not None else RetryPolicy()
@@ -184,19 +185,24 @@ class GroqSpeechToText:
             raise SpeechToTextError(f"falha de transporte com {VENDOR}") from error
 
     def _http_error(self, error: urllib.error.HTTPError) -> SpeechToTextError:
-        # Nenhum ramo repete o corpo da resposta: ela ecoa a transcrição, que é
-        # fala do usuário.
-        logger.warning("voice.stt_http_error", extra={"provider": VENDOR, "status": error.code})
+        detail = _extract_error_detail(error)
+        logger.warning(
+            "voice.stt_http_error",
+            extra={"provider": VENDOR, "status": error.code, "detail": detail},
+        )
         if error.code == 429:
+            msg = f"limite de requisições de {VENDOR} atingido"
             return SttRateLimitError(
-                f"limite de requisições de {VENDOR} atingido", retry_after=_retry_after(error)
+                f"{msg}: {detail}" if detail else msg, retry_after=_retry_after(error)
             )
         if error.code in (401, 403):
-            return SttAuthenticationError(f"credencial recusada por {VENDOR}")
+            msg = f"credencial recusada por {VENDOR}"
+            return SttAuthenticationError(f"{msg}: {detail}" if detail else msg)
         if error.code == 413:
             return SttRejectedError(f"{VENDOR} recusou o áudio: grande demais")
         if 400 <= error.code < 500:
-            return SttRejectedError(f"{VENDOR} recusou a requisição (HTTP {error.code})")
+            msg = f"{VENDOR} recusou a requisição (HTTP {error.code})"
+            return SttRejectedError(f"{msg}: {detail}" if detail else msg)
         return SpeechToTextError(f"{VENDOR} indisponível (HTTP {error.code})")
 
     def _parse(self, body: bytes, *, language: str | None, clip: PcmClip) -> Transcript:
@@ -216,6 +222,21 @@ class GroqSpeechToText:
             language=_language_of(decoded, fallback=language),
             duration_seconds=clip.duration_seconds,
         )
+
+
+def _extract_error_detail(error: urllib.error.HTTPError) -> str:
+    try:
+        raw = error.read().decode("utf-8", errors="ignore")
+        data = json.loads(raw)
+        if isinstance(data, Mapping):
+            err = data.get("error")
+            if isinstance(err, Mapping):
+                return str(err.get("message", "")).strip()
+            if isinstance(err, str):
+                return err.strip()
+    except Exception:
+        pass
+    return ""
 
 
 def _language_of(payload: Mapping[str, object], *, fallback: str | None) -> str | None:
