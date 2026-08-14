@@ -3,11 +3,18 @@
 Agente pessoal de IA, construído de forma incremental e orientado a eventos,
 contexto e memória.
 
-> **Status:** Fase 3 — Memory System concluída. O Jarvis registra acontecimentos
-> como fatos imutáveis, os projeta em um estado atual consultável e agora também
-> lembra: memórias tipadas, com proveniência, validade e um ranking explicável,
-> independentes de qualquer LLM. Raciocínio e voz ainda não existem — o
-> planejamento completo está em [ROADMAP.md](ROADMAP.md).
+> **Status:** Fase 5 — Skills + MCP concluída. O Jarvis registra acontecimentos
+> como fatos imutáveis, os projeta em um estado atual consultável, lembra
+> (memórias tipadas, com proveniência, validade e ranking explicável), raciocina
+> sobre tudo isso com um LLM atrás de um port vendor-agnóstico e **age**: a
+> decisão passa por um Policy Engine determinístico antes de virar uma Skill
+> executada por ferramentas locais ou por MCP Servers externos, com trilha de
+> auditoria em eventos.
+>
+> Falta voz (Fase 6) e proatividade (Fase 7): hoje quem dispara um turno é você,
+> pelo CLI. `notify`/`ask` não entregam nada fora do terminal, porque o
+> Notification System é a subfase 7.3. Planejamento completo em
+> [ROADMAP.md](ROADMAP.md).
 
 ## Requisitos
 
