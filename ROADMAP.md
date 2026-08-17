@@ -1347,13 +1347,13 @@ feat: implement permission system
 
 ## 8.4 — Audit Logging
 
-- [ ] Registrar ações
-- [ ] Registrar ferramentas
-- [ ] Registrar decisões
-- [ ] Registrar confirmações
-- [ ] Registrar falhas
-- [ ] Implementar consulta
-- [ ] Criar testes
+- [x] Registrar ações (já existe desde a Fase 5 — `jarvis/execution/adapters/event_audit.py`)
+- [x] Registrar ferramentas (já existe desde a Fase 5 — trilha de `tool.execution_*`)
+- [x] Registrar decisões (já existe desde a Fase 7.4 — `jarvis/decisions/`)
+- [x] Registrar confirmações (já existe desde a Fase 5 — `action.confirmation_requested`)
+- [x] Registrar falhas (já existe desde a Fase 5 — `tool.execution_failed`/`action.failed`)
+- [x] Implementar consulta (`jarvis audit show <correlation_id>` — nova consulta unificada sobre o Event Store já existente, sem armazenamento novo)
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -1911,7 +1911,7 @@ TTS
 | 2026-08-17 | 8.1 | ✅ | `feat: implement computer context providers` |
 | 2026-08-17 | 8.2 | ✅ | `feat: implement computer skill` |
 | 2026-08-17 | 8.3 | ✅ | `feat: implement permission system` |
-| — | 8.4 | ⬜ | — |
+| 2026-08-17 | 8.4 | ✅ | `feat: implement audit logging` |
 | — | 8.5 | ⬜ | — |
 | — | 8.6 | ⬜ | — |
 | — | 8.7 | ⬜ | — |

@@ -22,6 +22,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Final
 
 from jarvis import __version__
 from jarvis.agent import (
@@ -45,6 +46,7 @@ from jarvis.agent import (
     UserMessage,
 )
 from jarvis.agent.adapters.gemini import GeminiLLMProvider
+from jarvis.audit import AuditKind
 from jarvis.config import LogLevel, Settings, load_settings
 from jarvis.context import (
     ContextAggregator,
@@ -1120,6 +1122,14 @@ def build_parser() -> argparse.ArgumentParser:
     decisions_list.add_argument("--correlation-id", help="Mostra a cadeia causal inteira.")
     decisions_list.add_argument("--limit", type=int, default=DEFAULT_LIST_LIMIT)
 
+    audit = subparsers.add_parser("audit", help="Consulta a trilha de auditoria (Fase 8.4).")
+    audit.set_defaults(audit_parser=audit)
+    audit_actions = audit.add_subparsers(dest="audit_command")
+    audit_show = audit_actions.add_parser(
+        "show", help="Mostra decisão(ões) e trilha de ação de uma correlação."
+    )
+    audit_show.add_argument("correlation_id")
+
     tasks_parser = subparsers.add_parser("tasks", help="Tarefas em background (Fase 7.5).")
     tasks_parser.set_defaults(tasks_parser=tasks_parser)
     tasks_actions = tasks_parser.add_subparsers(dest="tasks_command")
@@ -2123,6 +2133,73 @@ def _decisions(args: argparse.Namespace, settings: Settings) -> int:
     return _decisions_list(args, settings)
 
 
+_AUDIT_EVENT_TYPES: Final = frozenset(item.value for item in AuditKind)
+_AUDIT_DETAIL_KEYS: Final = (
+    "execution_id",
+    "skill",
+    "actor",
+    "reason",
+    "rule_id",
+    "decision",
+    "tool_id",
+    "backend_id",
+)
+
+
+def _audit_detail(event: Event) -> str:
+    parts = [
+        f"{key}={value}"
+        for key in _AUDIT_DETAIL_KEYS
+        if isinstance(value := event.payload.get(key), str) and value
+    ]
+    duration = event.payload.get("duration_ms")
+    if isinstance(duration, int | float):
+        parts.append(f"duration_ms={duration}")
+    return " ".join(parts)
+
+
+def _print_audit_row(recorded: RecordedEvent) -> None:
+    print(
+        f"{recorded.recorded_at.isoformat()}  {recorded.event.event_type:<32} "
+        f"{_audit_detail(recorded.event)}"
+    )
+
+
+def _audit_show(args: argparse.Namespace, settings: Settings) -> int:
+    """Lê o **mesmo** Event Store que `decisions list`/`events list` já leem —
+    nenhum armazenamento novo, só uma projeção que junta decisão e trilha de
+    ação numa timeline só, ordenada por `recorded_at` (ADR-0017).
+    """
+    with SqliteEventStore.open(event_store_path(settings)) as store:
+        events = store.read_by_correlation(args.correlation_id)
+    if not events:
+        print("nenhum evento encontrado para essa correlação", file=sys.stderr)
+        return EXIT_INVALID_INPUT
+
+    decisions = project_decisions(events)
+    if decisions:
+        print("decisões")
+        for record in decisions:
+            _print_decision_row(record)
+        print()
+
+    print("trilha")
+    audited = [recorded for recorded in events if recorded.event.event_type in _AUDIT_EVENT_TYPES]
+    if not audited:
+        print("nenhum marco de auditoria para essa correlação")
+        return EXIT_OK
+    for recorded in audited:
+        _print_audit_row(recorded)
+    return EXIT_OK
+
+
+def _audit(args: argparse.Namespace, settings: Settings) -> int:
+    if args.audit_command is None:
+        args.audit_parser.print_help()
+        return EXIT_OK
+    return _audit_show(args, settings)
+
+
 def _print_task_row(task: BackgroundTask) -> None:
     print(
         f"{task.task_id}  {task.request.skill:<16} {task.status.value:<10} "
@@ -2746,6 +2823,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _action(args, settings)
         if args.command == "decisions":
             return _decisions(args, settings)
+        if args.command == "audit":
+            return _audit(args, settings)
         if args.command == "tasks":
             return _tasks(args, settings)
         if args.command == "voice":

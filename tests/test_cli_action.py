@@ -32,6 +32,10 @@ def execution_id_from(out: str) -> str:
     return next(line.split()[1] for line in out.splitlines() if line.startswith("execution "))
 
 
+def correlation_id_from(out: str) -> str:
+    return next(line.split()[1] for line in out.splitlines() if line.startswith("correlation "))
+
+
 class TestSkillsCommand:
     def test_listing_shows_the_catalog_with_its_risk_metadata(
         self, capsys: pytest.CaptureFixture[str]
@@ -322,6 +326,70 @@ class TestAuditTrail:
         assert "policy.evaluated" in out
         assert "action.failed" in out
         assert "tool.execution_completed" not in out
+
+
+class TestAuditShowCommand:
+    """Fase 8.4: `jarvis audit show` junta decisão(ões) e trilha de ação de
+    uma correlação numa consulta só — nenhum armazenamento novo, mesmo
+    Event Store de `events list`/`decisions list`."""
+
+    def test_a_completed_action_shows_its_whole_trail(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        main(["action", "run", "--skill", "system.status", "--correlation-id", "corr-audit-1"])
+        capsys.readouterr()
+
+        assert main(["audit", "show", "corr-audit-1"]) == 0
+
+        out = capsys.readouterr().out
+        assert "trilha" in out
+        lines = [line for line in out.splitlines() if "execution_id=" in line]
+        event_types = [line.split()[1] for line in lines]
+        assert event_types == [
+            "action.requested",
+            "policy.evaluated",
+            "tool.execution_completed",
+            "action.completed",
+        ]
+
+    def test_a_denial_shows_only_up_to_the_failure(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setenv("JARVIS_POLICY_DENIED_SKILLS", "system.status")
+        main(["action", "run", "--skill", "system.status", "--correlation-id", "corr-audit-2"])
+        capsys.readouterr()
+
+        assert main(["audit", "show", "corr-audit-2"]) == 0
+
+        out = capsys.readouterr().out
+        assert "policy.evaluated" in out
+        assert "action.failed" in out
+        assert "tool.execution_completed" not in out
+
+    def test_an_unknown_correlation_is_an_invalid_input(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main(["audit", "show", "does-not-exist"]) == 2
+        assert "nenhum evento encontrado" in capsys.readouterr().err
+
+    def test_without_a_subcommand_prints_help(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["audit"]) == 0
+        assert "usage: jarvis audit" in capsys.readouterr().out
+
+    def test_a_decision_is_shown_alongside_its_action_trail(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        provider = StubLLMProvider([decision_json(type="notify", message="tudo em ordem")])
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+
+        main(["agent", "ask", "oi"])
+        correlation_id = correlation_id_from(capsys.readouterr().out)
+
+        assert main(["audit", "show", correlation_id]) == 0
+
+        out = capsys.readouterr().out
+        assert "decisões" in out
+        assert "notify" in out
 
 
 class TestAgentExecute:
