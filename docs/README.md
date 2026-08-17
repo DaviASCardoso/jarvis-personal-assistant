@@ -57,11 +57,18 @@ Esta pasta reúne a documentação técnica do Jarvis.
   `src/jarvis/execution/` desde a Fase 5 (regras e composição por força,
   `PolicyApproval` de uso único, fluxo de confirmação, menor privilégio em três
   camadas, as cinco impossibilidades, auditoria, secrets).
+- [`proactivity.md`](proactivity.md) — **documentação de implementação**:
+  descreve a proatividade que existe em `src/jarvis/proactivity/`,
+  `src/jarvis/notify/`, `src/jarvis/decisions/` e `src/jarvis/tasks/` desde a
+  Fase 7 (Trigger Engine, Interruption Policy, Conditional Triggers sem LLM,
+  Notification Manager, Decision Log como eventos, Background Task Manager
+  ticado sem thread nova, os três interruptores de opt-in, comandos de CLI e
+  a limitação conhecida de escopo de reação entre processos).
 - [`phase-1-plan.md`](phase-1-plan.md), [`phase-2-plan.md`](phase-2-plan.md),
   [`phase-3-plan.md`](phase-3-plan.md), [`phase-4-plan.md`](phase-4-plan.md),
-  [`phase-5-plan.md`](phase-5-plan.md) e [`phase-6-plan.md`](phase-6-plan.md) —
-  os planos técnicos aprovados que guiaram as Fases 1 a 6, incluindo as decisões
-  consideradas e as descartadas.
+  [`phase-5-plan.md`](phase-5-plan.md), [`phase-6-plan.md`](phase-6-plan.md) e
+  [`phase-7-plan.md`](phase-7-plan.md) — os planos técnicos aprovados que
+  guiaram as Fases 1 a 7, incluindo as decisões consideradas e as descartadas.
 
 ## Contratos vs. documentação de implementação
 

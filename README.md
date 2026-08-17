@@ -3,19 +3,25 @@
 Agente pessoal de IA, construído de forma incremental e orientado a eventos,
 contexto e memória.
 
-> **Status:** Fase 6 — Voz e interface concluída. O Jarvis registra
+> **Status:** Fase 7 — Proatividade concluída. O Jarvis registra
 > acontecimentos como fatos imutáveis, os projeta em um estado atual consultável,
 > lembra (memórias tipadas, com proveniência, validade e ranking explicável),
 > raciocina sobre tudo isso com um LLM atrás de um port vendor-agnóstico e
 > **age**: a decisão passa por um Policy Engine determinístico antes de virar uma
 > Skill executada por ferramentas locais ou por MCP Servers externos, com trilha
-> de auditoria em eventos. Agora também **conversa por voz** e mostra tudo o que
-> está acontecendo num painel local.
+> de auditoria em eventos. **Conversa por voz** e mostra tudo o que está
+> acontecendo num painel local. Agora também **age sozinho, quando autorizado**:
+> um evento publicado durante `jarvis run` pode disparar raciocínio (Trigger
+> Engine) ou automação determinística sem LLM (Conditional Triggers),
+> notificar por console ou voz (Notification Manager, com política de
+> interrupção) e executar tarefas adiadas/repetíveis (Background Task
+> Manager) — tudo atrás de três interruptores de opt-in, desligados por
+> padrão (ver [ADR-0029](docs/adr/0029-proactivity-opt-in-layers.md)).
 >
-> Falta proatividade (Fase 7): hoje quem dispara um turno é você, pelo CLI ou
-> falando. `notify`/`ask` ainda não entregam nada fora do terminal e do painel,
-> porque o Notification System é a subfase 7.3. Planejamento completo em
-> [ROADMAP.md](ROADMAP.md).
+> Falta integrar o sistema com o computador e endurecer a confiabilidade
+> (Fase 8): observação de aplicação/janela ativa, uma Computer Skill, um
+> sistema de permissões unificado, avaliação comportamental e testes de
+> falha/recuperação. Planejamento completo em [ROADMAP.md](ROADMAP.md).
 
 ## Requisitos
 
@@ -199,6 +205,29 @@ usadas. É **somente leitura** e só escuta em loopback — nenhuma rota inicia 
 ([ADR-0024](docs/adr/0024-observability-panel-as-snapshot-reader.md)).
 Detalhes em [`docs/interface.md`](docs/interface.md).
 
+### Proatividade
+
+Desligada por padrão — `jarvis run` sem configuração extra se comporta
+exatamente como antes da Fase 7. Ligar exige três interruptores
+independentes (ver [ADR-0029](docs/adr/0029-proactivity-opt-in-layers.md)):
+
+```bash
+JARVIS_PROACTIVITY_ENABLED=true
+JARVIS_PROACTIVITY_TRIGGER_EVENT_TYPES=printer.job_completed   # ou um arquivo de regras:
+JARVIS_PROACTIVITY_RULES_PATH=rules.json
+JARVIS_PROACTIVITY_EXECUTE_ACTIONS=true                        # opt-in, como --execute
+```
+
+```bash
+uv run jarvis decisions list [--correlation-id <id>]   # trilha de decisões do agente
+uv run jarvis tasks list                               # tarefas em background pendentes/em retry
+uv run jarvis tasks show <task_id>
+uv run jarvis tasks cancel <task_id>
+uv run jarvis tasks run-due                             # tica o que estiver devido agora
+```
+
+Detalhes em [`docs/proactivity.md`](docs/proactivity.md).
+
 ## Desenvolvimento
 
 ```bash
@@ -232,8 +261,8 @@ autorização** em vigor — ela decide entre uma ação permitida e uma negada,
 deve ser adivinhada.
 
 Os dados locais ficam em `data/`: `events.db`, `context.db`, `memory.db`,
-`actions.db`, `voice.db` e o workspace das skills de arquivo. Nenhum deles é
-versionado.
+`actions.db`, `voice.db`, `tasks.db` e o workspace das skills de arquivo.
+Nenhum deles é versionado.
 
 ## Sobre containers
 

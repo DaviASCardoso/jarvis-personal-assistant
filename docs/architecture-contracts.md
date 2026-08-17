@@ -396,6 +396,32 @@ código deve rejeitar qualquer import que a viole.
   ela.
 - **Responsável:** Background Task Manager.
 
+### 3.17 Proactivity (Trigger Engine + Interruption Policy + Conditional Triggers)
+
+> Acrescentado na Fase 7 (subfases 7.1, 7.2, 7.6). Ver
+> [ADR-0029](adr/0029-proactivity-opt-in-layers.md).
+
+- **Responsabilidade:** decidir **se** e **quando** um evento merece
+  raciocínio (`TriggerEngine`) ou automação determinística
+  (`ConditionEngine`), e **se** algo já considerado importante deve
+  interromper o usuário agora (`InterruptionPolicy`). Nunca decide **o que**
+  fazer — isso é do Agent Runtime — e nunca executa nada sozinho.
+- **Permitido conhecer:** Domain próprio, `jarvis.context.model` (leitura),
+  `jarvis.events.event` (`RecordedEvent`), `jarvis.execution.model`
+  (`ActionRequest`/`Actor` — dado de intenção, não o executor).
+- **Proibido conhecer:** `jarvis.agent` (nenhum tipo, nem `Decision` nem
+  `AgentTurn` — os pontos de entrada recebem primitivos ou devolvem dado
+  para um callback injetado), `jarvis.memory`, `jarvis.skills`,
+  `jarvis.tools`, `jarvis.policy`, `jarvis.voice`, `jarvis.notify`.
+- **Entradas:** `RecordedEvent` (via `EventConsumer`), `CurrentContext`.
+- **Saídas:** um casamento de regra + callback acionado (`TriggerEngine`),
+  ou uma `ActionRequest` pronta (`ConditionEngine`), ou uma
+  `InterruptionDecision` (`InterruptionPolicy`).
+- **Regra crítica:** autonomia é opt-in em cada camada — ver ADR-0029. Sem
+  os interruptores corretos, este componente existe e roda, mas não produz
+  efeito nenhum.
+- **Responsável:** Proactivity.
+
 ---
 
 ## 4. LLM Independence
@@ -760,6 +786,8 @@ consequências completas:
 - [ADR-0028](adr/0028-console-channel-for-desktop-notifications.md) — Canal
   "desktop" do Notification Manager é console/log, não um toast nativo do SO
   (Fase 7).
+- [ADR-0029](adr/0029-proactivity-opt-in-layers.md) — Autonomia real em três
+  interruptores independentes; automação condicional sem LLM (Fase 7).
 
 Decisões de campo-a-campo (schema exato de Event/Context/Memory, nomes
 exatos da taxonomia de erro) **não** viram ADR — são detalhe de contrato,

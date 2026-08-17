@@ -20,7 +20,7 @@ O sistema será construído em oito fases:
 - [x] **Fase 4 — Agent Runtime**
 - [x] **Fase 5 — Skills + MCP**
 - [x] **Fase 6 — Voice**
-- [ ] **Fase 7 — Proactivity + Autonomy**
+- [x] **Fase 7 — Proactivity + Autonomy**
 - [ ] **Fase 8 — Integration + Hardening**
 
 ## Metodologia de desenvolvimento
@@ -1256,12 +1256,17 @@ feat: implement conditional triggers
 
 ## 7.7 — Proactivity Integration
 
-- [ ] Integrar triggers
-- [ ] Integrar policy
-- [ ] Integrar notifications
-- [ ] Integrar memory
-- [ ] Integrar tasks
-- [ ] Testar comportamento proativo completo
+- [x] Integrar triggers — `TriggerEventConsumer`/`ConditionalTriggerConsumer` inscritos num `EventBus` compartilhado por `jarvis run` (`_build_proactivity`), só quando `JARVIS_PROACTIVITY_ENABLED` e há allowlist/regra configurada
+- [x] Integrar policy — todo caminho proativo (raciocínio e condicional) chega a `ActionExecutor.submit`, que já passa por `PolicyEngine`; nenhum atalho novo
+- [x] Integrar notifications — `NotificationManager` entrega o `message` de uma decisão proativa; canal de voz reconstruído em `_serve_voice` com o `TextToSpeech`/`AudioSink` reais, console sempre como fallback
+- [x] Integrar memory — o caminho de raciocínio (7.1) chama `AgentRuntime.handle` como `agent react` já fazia: retrieval automático, e a proposta de memória da decisão é persistida (`_persist_memory_proposal`, mesma proveniência de evento que `agent react`)
+- [x] Integrar tasks — `TaskManager.run_due` ticado no início de `_run_resident` e a cada `PanelBridge.refresh()`, sobre um `ActionExecutor` construído uma única vez por sessão (ADR-0027); `jarvis tasks list|show|cancel|run-due`
+- [x] Testar comportamento proativo completo — `tests/test_proactivity_integration.py` (evento → Trigger Engine → Agent Runtime com LLM substituído → Decision Log → Notification → Action Executor, e o caminho paralelo Conditional Trigger → Action Executor sem LLM) + `tests/test_cli_proactivity.py` (wiring do composition root, `proactivity_enabled=False` idêntico ao pré-Fase-7)
+
+Autonomia real é opt-in em três interruptores independentes
+(`JARVIS_PROACTIVITY_ENABLED`, allowlist de triggers/regras não vazia,
+`JARVIS_PROACTIVITY_EXECUTE_ACTIONS`) — ver ADR-0029. Sem eles, `jarvis run`
+se comporta exatamente como antes da Fase 7.
 
 **Commit esperado:**
 
@@ -1271,7 +1276,7 @@ feat: enable proactive agent behavior
 
 ### Proactivity completa
 
-- [ ] **FASE 7 CONCLUÍDA**
+- [x] **FASE 7 CONCLUÍDA**
 
 ---
 
@@ -1608,11 +1613,11 @@ O sistema consegue conversar.
 **Semana 14**
 
 ```text
-[ ] Triggers
-[ ] Policies
-[ ] Notifications
-[ ] Tasks
-[ ] Conditional Actions
+[x] Triggers
+[x] Policies
+[x] Notifications
+[x] Tasks
+[x] Conditional Actions — sem LLM, ver ADR-0029
 ```
 
 O sistema consegue decidir quando deve falar e agir.
@@ -1902,7 +1907,7 @@ TTS
 | 2026-08-17 | 7.4 | ✅ | `feat: implement agent decision logging` |
 | 2026-08-17 | 7.5 | ✅ | `feat: implement background task manager` |
 | 2026-08-17 | 7.6 | ✅ | `feat: implement conditional triggers` (integração de memória fora de escopo — ver 7.6) |
-| — | 7.7 | ⬜ | — |
+| 2026-08-17 | 7.7 | ✅ | `feat: enable proactive agent behavior` |
 | — | 8.1 | ⬜ | — |
 | — | 8.2 | ⬜ | — |
 | — | 8.3 | ⬜ | — |

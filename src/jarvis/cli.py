@@ -58,7 +58,13 @@ from jarvis.context.adapters.device_provider import LocalDeviceProvider
 from jarvis.context.adapters.sqlite_snapshots import SqliteContextSnapshotRepository
 from jarvis.context.adapters.time_provider import SystemTimeProvider
 from jarvis.context.consumer import CONTEXT_EVENT_TYPES
-from jarvis.decisions import DECISION_RECORDED, DecisionRecord, decision_event, project_decisions
+from jarvis.decisions import (
+    DECISION_RECORDED,
+    DecisionLogError,
+    DecisionRecord,
+    decision_event,
+    project_decisions,
+)
 from jarvis.events import (
     Event,
     EventBus,
@@ -111,6 +117,10 @@ from jarvis.memory.adapters.context_bridge import context_to_query
 from jarvis.memory.adapters.event_consumer import MEMORY_EVENT_TYPES, MemoryEventConsumer
 from jarvis.memory.adapters.hashing_embeddings import HashingEmbeddingProvider
 from jarvis.memory.adapters.sqlite_repository import SqliteMemoryRepository
+from jarvis.notify import Notification, NotificationManager, NotificationPriority, NotifyError
+from jarvis.notify.adapters.console import ConsoleNotificationChannel
+from jarvis.notify.adapters.voice import VoiceNotificationChannel
+from jarvis.notify.ports import NotificationChannel
 from jarvis.policy import (
     InvalidPolicyVocabularyError,
     PolicyEngine,
@@ -121,8 +131,21 @@ from jarvis.policy import (
     parse_names,
     parse_risk,
 )
+from jarvis.proactivity import (
+    ConditionalTriggerConsumer,
+    ConditionEngine,
+    InterruptionPolicy,
+    InterruptionSettings,
+    ProactivityError,
+    TriggerEngine,
+    TriggerEventConsumer,
+    TriggerRule,
+)
+from jarvis.proactivity.adapters.rules_config import load_conditional_rules
 from jarvis.skills import SkillError, SkillRegistry
 from jarvis.skills.builtin import register_builtin_skills
+from jarvis.tasks import BackgroundTask, TaskError, TaskManager, TaskRepositoryError, TaskStatus
+from jarvis.tasks.adapters.sqlite_tasks import SqliteTaskRepository
 from jarvis.tools import (
     ToolError,
     ToolInvalidInputError,
@@ -154,6 +177,7 @@ from jarvis.voice import (
     VoiceRepositoryError,
     VoiceSession,
     VoiceSettings,
+    VoiceState,
     VoiceStatus,
     WakeWordDetector,
     parse_phrases,
@@ -378,13 +402,78 @@ def build_action_executor(
 
 
 def _build_publisher(
-    store: SqliteEventStore, *, confirmations: ActionEventConsumer | None = None
+    store: SqliteEventStore,
+    *,
+    bus: EventBus | None = None,
+    confirmations: ActionEventConsumer | None = None,
 ) -> EventPublisher:
-    bus = EventBus()
-    bus.subscribe(LoggingEventConsumer())
+    """`bus=None` (o default de todo comando de tiro único) constrói um bus
+    novo e descartável — comportamento inalterado desde a Fase 5.
+
+    `bus` explícito é o que a Fase 7 usa em `jarvis run`: um único bus vive
+    pelo processo inteiro, para que eventos de sessão, decisão e confirmação
+    publicados durante a mesma execução alcancem o Trigger Engine e o
+    Conditional Trigger (`_build_proactivity`), que se inscrevem nele uma
+    única vez. Quando `bus` é passado, `confirmations` é ignorado: quem
+    montou o bus compartilhado já assinou o que precisava.
+    """
+    if bus is not None:
+        return EventPublisher(store=store, bus=bus)
+    fresh = EventBus()
+    fresh.subscribe(LoggingEventConsumer())
     if confirmations is not None:
-        bus.subscribe(confirmations, event_types=CONFIRMATION_EVENT_TYPES)
-    return EventPublisher(store=store, bus=bus)
+        fresh.subscribe(confirmations, event_types=CONFIRMATION_EVENT_TYPES)
+    return EventPublisher(store=store, bus=fresh)
+
+
+def build_trigger_engine(settings: Settings) -> TriggerEngine:
+    """Allowlist vazia (padrão) nunca casa nada — autonomia é opt-in."""
+    event_types = _parse_list(settings.proactivity_trigger_event_types)
+    if not event_types:
+        return TriggerEngine()
+    return TriggerEngine([TriggerRule(trigger_id="configured", event_types=frozenset(event_types))])
+
+
+def build_interruption_policy(settings: Settings) -> InterruptionPolicy:
+    return InterruptionPolicy(
+        InterruptionSettings(
+            importance_threshold=settings.proactivity_importance_threshold,
+            quiet_hours_start=settings.proactivity_quiet_hours_start,
+            quiet_hours_end=settings.proactivity_quiet_hours_end,
+            cooldown_seconds=settings.proactivity_notification_cooldown_seconds,
+        )
+    )
+
+
+def build_condition_engine(settings: Settings) -> ConditionEngine:
+    """Ausência de `proactivity_rules_path` é "nenhuma regra", não erro."""
+    if settings.proactivity_rules_path is None:
+        return ConditionEngine()
+    return ConditionEngine(load_conditional_rules(settings.proactivity_rules_path))
+
+
+def build_task_manager(settings: Settings, *, repository: SqliteTaskRepository) -> TaskManager:
+    return TaskManager(
+        repository=repository,
+        max_attempts=settings.tasks_max_attempts,
+        retry_base_delay_seconds=settings.tasks_retry_base_delay_seconds,
+    )
+
+
+def build_notification_manager(
+    settings: Settings, *, voice_channel: NotificationChannel | None = None
+) -> NotificationManager:
+    """Console sempre presente (funciona sem hardware de áudio); voz só quando
+    o composition root souber que há um canal de voz utilizável agora."""
+    channels: list[NotificationChannel] = []
+    if voice_channel is not None:
+        channels.append(voice_channel)
+    channels.append(ConsoleNotificationChannel())
+    return NotificationManager(
+        channels=channels,
+        interruption_policy=build_interruption_policy(settings),
+        silent_mode=settings.notify_silent_mode,
+    )
 
 
 def capabilities_from(skills: SkillRegistry) -> tuple[Capability, ...]:
@@ -407,6 +496,11 @@ def capabilities_from(skills: SkillRegistry) -> tuple[Capability, ...]:
 def voice_store_path(settings: Settings) -> Path:
     """Quinto banco: transcrições de voz, estado operacional com retenção."""
     return settings.data_dir / "voice.db"
+
+
+def task_store_path(settings: Settings) -> Path:
+    """Sexto banco: tarefas em background, estado operacional próprio (Fase 7.5)."""
+    return settings.data_dir / "tasks.db"
 
 
 def build_stt(settings: Settings) -> GroqSpeechToText:
@@ -567,6 +661,7 @@ class RuntimeConversationalAgent:
         execute: bool = False,
         on_trace: Callable[[TurnTrace], None] = lambda trace: None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        bus: EventBus | None = None,
     ) -> None:
         self._settings = settings
         self._runtime = runtime
@@ -577,6 +672,12 @@ class RuntimeConversationalAgent:
         self._execute = execute
         self._on_trace = on_trace
         self._clock = clock
+        # Fase 7: quando o composition root monta um bus compartilhado para
+        # `jarvis run` (`_build_proactivity`), sessão/decisão/confirmação
+        # publicam nele, para que o Trigger Engine e o Conditional Trigger
+        # (já inscritos uma única vez) os vejam. `None` preserva o
+        # comportamento anterior à Fase 7 (um bus descartável por chamada).
+        self._bus = bus
 
     def respond(self, text: str, *, session: VoiceSession) -> AgentReply:
         now = self._clock()
@@ -586,7 +687,9 @@ class RuntimeConversationalAgent:
             recent_events=_recent_events(self._store),
             capabilities=capabilities_from(self._skills),
         )
-        _record_decision(turn, context_as_of=self._context.current().as_of, store=self._store)
+        _record_decision(
+            turn, context_as_of=self._context.current().as_of, store=self._store, bus=self._bus
+        )
         # Mesma proveniência de `agent ask`, e por decisão reavaliada: mesmo com
         # a sessão persistida, o caminho do usuário segue sem `reference`, porque
         # um ponteiro por sessão faria `find_duplicate` tratar cada conversa como
@@ -627,7 +730,9 @@ class RuntimeConversationalAgent:
             if pending is None:
                 return AgentReply(text="Não encontrei essa ação.", decision_type="notify")
 
-            publisher = _build_publisher(self._store, confirmations=ActionEventConsumer(actions))
+            publisher = _build_publisher(
+                self._store, bus=self._bus, confirmations=ActionEventConsumer(actions)
+            )
             publisher.publish(
                 confirmation_event(
                     granted=granted,
@@ -756,6 +861,7 @@ class PanelBridge:
         service: ObservabilityService,
         refresh_seconds: float = 2.0,
         monotonic: Callable[[], float] = time.monotonic,
+        on_refresh: Callable[[], None] = lambda: None,
     ) -> None:
         self._live = live
         self._service = service
@@ -766,6 +872,11 @@ class PanelBridge:
         self._voice: VoiceStatus | None = None
         self._trace: TurnTrace | None = None
         self._last: PanelSnapshot | None = None
+        # Fase 7.5: ponto de tick do Background Task Manager. `refresh()` já
+        # roda periodicamente em `jarvis run`, com ou sem voz — reaproveitá-lo
+        # evita um timer novo (ADR-0027) sem custar um `ToolRegistry`/conexão
+        # MCP por ciclo, porque quem chama já entrega um executor pronto.
+        self._on_refresh = on_refresh
 
     @property
     def live(self) -> LiveState:
@@ -786,6 +897,7 @@ class PanelBridge:
         self._trace = trace
 
     def refresh(self) -> None:
+        self._on_refresh()
         snapshot = self._service.snapshot(
             voice=self._voice, session=self._session, trace=self._trace
         )
@@ -983,6 +1095,18 @@ def build_parser() -> argparse.ArgumentParser:
     decisions_list.add_argument("--correlation-id", help="Mostra a cadeia causal inteira.")
     decisions_list.add_argument("--limit", type=int, default=DEFAULT_LIST_LIMIT)
 
+    tasks_parser = subparsers.add_parser("tasks", help="Tarefas em background (Fase 7.5).")
+    tasks_parser.set_defaults(tasks_parser=tasks_parser)
+    tasks_actions = tasks_parser.add_subparsers(dest="tasks_command")
+    tasks_actions.add_parser("list", help="Lista tarefas pendentes/em retry.")
+    tasks_show = tasks_actions.add_parser("show", help="Mostra o estado de uma tarefa.")
+    tasks_show.add_argument("task_id")
+    tasks_cancel = tasks_actions.add_parser("cancel", help="Cancela uma tarefa não terminal.")
+    tasks_cancel.add_argument("task_id")
+    tasks_actions.add_parser(
+        "run-due", help="Executa toda tarefa devida agora (mesmo tick de `jarvis run`)."
+    )
+
     voice = subparsers.add_parser("voice", help="Fala e escuta.")
     voice.set_defaults(voice_parser=voice)
     voice_actions = voice.add_subparsers(dest="voice_command")
@@ -1150,6 +1274,7 @@ def _info(settings: Settings) -> int:
     print(f"memory_store  {memory_store_path(settings)}")
     print(f"action_store  {action_store_path(settings)}")
     print(f"voice_store   {voice_store_path(settings)}")
+    print(f"task_store    {task_store_path(settings)}")
     print(
         f"voice         wake={settings.wake_strategy} stt={settings.stt_provider} "
         f"tts={settings.tts_provider} voz={settings.tts_voice}"
@@ -1160,6 +1285,14 @@ def _info(settings: Settings) -> int:
     # A política efetiva não deve ser adivinhada: ela é a diferença entre uma
     # ação permitida e uma negada, e vive em variáveis de ambiente.
     print(f"policy        {build_policy_rules(settings).describe()}")
+    triggers = _parse_list(settings.proactivity_trigger_event_types)
+    execute_label = "sim" if settings.proactivity_execute_actions else "não"
+    print(
+        f"proactivity   enabled={'sim' if settings.proactivity_enabled else 'não'} "
+        f"triggers={len(triggers)} execute={execute_label} "
+        f"rules={settings.proactivity_rules_path or ABSENT}"
+    )
+    print(f"notify        silent={'sim' if settings.notify_silent_mode else 'não'}")
     return EXIT_OK
 
 
@@ -1480,7 +1613,11 @@ def _prepared_context(
 
 
 def _record_decision(
-    turn: AgentTurn, *, context_as_of: datetime | None, store: SqliteEventStore
+    turn: AgentTurn,
+    *,
+    context_as_of: datetime | None,
+    store: SqliteEventStore,
+    bus: EventBus | None = None,
 ) -> None:
     """Publica a decisão do turno como evento — Fase 7.4.
 
@@ -1503,7 +1640,7 @@ def _record_decision(
         action_skill=decision.action.skill if decision.action is not None else None,
         source=DECISION_SOURCE,
     )
-    _build_publisher(store).publish(event)
+    _build_publisher(store, bus=bus).publish(event)
 
 
 def _recent_events(store: SqliteEventStore) -> tuple[EventSummary, ...]:
@@ -1959,6 +2096,92 @@ def _decisions(args: argparse.Namespace, settings: Settings) -> int:
     return _decisions_list(args, settings)
 
 
+def _print_task_row(task: BackgroundTask) -> None:
+    print(
+        f"{task.task_id}  {task.request.skill:<16} {task.status.value:<10} "
+        f"tentativas={task.attempts}/{task.max_attempts}  "
+        f"próxima={task.next_attempt_at.isoformat()}"
+    )
+
+
+def _tasks_list(settings: Settings) -> int:
+    with SqliteTaskRepository.open(task_store_path(settings)) as repository:
+        found = [
+            task
+            for status in (TaskStatus.PENDING, TaskStatus.RETRYING, TaskStatus.RUNNING)
+            for task in repository.list_by_status(status)
+        ]
+    if not found:
+        print("nenhuma tarefa pendente")
+        return EXIT_OK
+    for task in found:
+        _print_task_row(task)
+    return EXIT_OK
+
+
+def _tasks_show(args: argparse.Namespace, settings: Settings) -> int:
+    with SqliteTaskRepository.open(task_store_path(settings)) as repository:
+        task = repository.get(args.task_id)
+    if task is None:
+        print("tarefa não encontrada", file=sys.stderr)
+        return EXIT_INVALID_INPUT
+    print(f"task        {task.task_id}")
+    print(f"skill       {task.request.skill}")
+    print(f"status      {task.status.value}")
+    print(f"tentativas  {task.attempts}/{task.max_attempts}")
+    print(f"próxima     {task.next_attempt_at.isoformat()}")
+    print(f"criada      {task.created_at.isoformat()}")
+    print(f"atualizada  {task.updated_at.isoformat()}")
+    print(f"erro        {task.last_error or ABSENT}")
+    print(f"correlation {task.request.correlation_id}")
+    return EXIT_OK
+
+
+def _tasks_cancel(args: argparse.Namespace, settings: Settings) -> int:
+    with SqliteTaskRepository.open(task_store_path(settings)) as repository:
+        manager = build_task_manager(settings, repository=repository)
+        cancelled = manager.cancel(args.task_id)
+    print(f"cancelada   {cancelled.task_id}")
+    return EXIT_OK
+
+
+def _tasks_run_due(settings: Settings) -> int:
+    skills = build_skill_registry()
+    with (
+        SqliteEventStore.open(event_store_path(settings)) as store,
+        SqliteActionRepository.open(action_store_path(settings)) as actions,
+        SqliteTaskRepository.open(task_store_path(settings)) as repository,
+    ):
+        tools = build_tool_registry(settings)
+        try:
+            executor = build_action_executor(
+                settings, store=store, actions=actions, tools=tools, skills=skills
+            )
+            manager = build_task_manager(settings, repository=repository)
+            settled = manager.run_due(executor=executor)
+        finally:
+            tools.close()
+    if not settled:
+        print("nenhuma tarefa devida")
+        return EXIT_OK
+    for task in settled:
+        _print_task_row(task)
+    return EXIT_OK
+
+
+def _tasks(args: argparse.Namespace, settings: Settings) -> int:
+    if args.tasks_command is None:
+        args.tasks_parser.print_help()
+        return EXIT_OK
+    if args.tasks_command == "list":
+        return _tasks_list(settings)
+    if args.tasks_command == "show":
+        return _tasks_show(args, settings)
+    if args.tasks_command == "cancel":
+        return _tasks_cancel(args, settings)
+    return _tasks_run_due(settings)
+
+
 def _voice_devices() -> int:
     from jarvis.voice.adapters.sounddevice_audio import list_devices
 
@@ -2062,6 +2285,194 @@ def _voice_sessions(args: argparse.Namespace, settings: Settings) -> int:
     return EXIT_OK
 
 
+@dataclass(slots=True)
+class ProactivityRuntime:
+    """O que `jarvis run` monta uma vez e mantém pelo processo inteiro (Fase 7.7).
+
+    `bus` é o EventBus compartilhado que faz sessão de voz, decisão e
+    confirmação alcançarem o Trigger Engine (7.1) e o Conditional Trigger
+    (7.6) — construído e assinado uma única vez em `_build_proactivity`,
+    nunca recriado por chamada (ao contrário de `_build_publisher(store)`
+    nos comandos de tiro único).
+    """
+
+    bus: EventBus
+    notifications: NotificationManager
+    task_manager: TaskManager
+
+
+def _notification_from_turn(turn: AgentTurn, *, event: RecordedEvent) -> Notification | None:
+    """Só decisões com mensagem viram notificação — `ignore`/`remember`/`act`
+    puro não têm nada a dizer ao usuário. `subject` é o `event_type`: é o que
+    a Interruption Policy usa para o cooldown (duas ocorrências do mesmo tipo
+    de evento em sequência não repetem a interrupção)."""
+    decision = turn.decision
+    if decision.message is None:
+        return None
+    high_importance = turn.importance is not None and turn.importance.total >= 0.8
+    return Notification(
+        notification_id=decision.decision_id,
+        subject=event.event.event_type,
+        title="Jarvis",
+        body=decision.message,
+        priority=NotificationPriority.HIGH if high_importance else NotificationPriority.NORMAL,
+        correlation_id=decision.correlation_id,
+        created_at=decision.decided_at,
+    )
+
+
+def _make_trigger_callback(
+    settings: Settings,
+    *,
+    store: SqliteEventStore,
+    context: ContextEngine,
+    memories: SqliteMemoryRepository,
+    skills: SkillRegistry,
+    actions: SqliteActionRepository,
+    proactivity: ProactivityRuntime,
+) -> Callable[[RecordedEvent, TriggerRule], None]:
+    """O caminho 7.1: evento casado → Agent Runtime → decisão → notificação e,
+    se `proactivity_execute_actions`, submissão via `ActionExecutor`.
+
+    Reproduz exatamente o corpo de `_agent_react`, com duas diferenças: nada
+    vai para stdout (ninguém está olhando o terminal de um processo
+    autônomo), e a decisão é entregue ao `NotificationManager` em vez de
+    impressa.
+    """
+
+    def on_match(event: RecordedEvent, rule: TriggerRule) -> None:
+        runtime = build_agent_runtime(settings, context=context, memories=memories)
+        turn = runtime.handle(
+            EventTrigger.from_recorded(event),
+            recent_events=_recent_events(store),
+            capabilities=capabilities_from(skills),
+        )
+        _record_decision(
+            turn, context_as_of=context.current().as_of, store=store, bus=proactivity.bus
+        )
+        _persist_memory_proposal(
+            turn,
+            build_memory_manager(memories),
+            provenance=Provenance(origin=MemoryOrigin.EVENT, reference=event.event.event_id),
+        )
+
+        notification = _notification_from_turn(turn, event=event)
+        if notification is not None:
+            proactivity.notifications.notify(
+                notification,
+                importance=turn.importance.total if turn.importance is not None else 1.0,
+                context=context.current(),
+            )
+
+        if settings.proactivity_execute_actions and turn.decision.proposes_action:
+            proposal = turn.decision.action
+            assert proposal is not None  # garantido por `proposes_action`
+            tools = build_tool_registry(settings)
+            try:
+                executor = build_action_executor(
+                    settings, store=store, actions=actions, tools=tools, skills=skills
+                )
+                # `Actor.EVENT`: ninguém pediu isto — mesma convenção de `agent react`.
+                executor.submit(
+                    ActionRequest(
+                        skill=proposal.skill,
+                        parameters=dict(proposal.parameters),
+                        correlation_id=turn.decision.correlation_id,
+                        actor=Actor.EVENT,
+                        decision_id=turn.decision.decision_id,
+                        causation_id=turn.decision.causation_id,
+                    )
+                )
+            finally:
+                tools.close()
+
+    return on_match
+
+
+def _make_condition_callback(
+    settings: Settings,
+    *,
+    store: SqliteEventStore,
+    actions: SqliteActionRepository,
+    skills: SkillRegistry,
+) -> Callable[[ActionRequest], None]:
+    """O caminho 7.6: regra determinística casada → `ActionExecutor` direto,
+    sem LLM. `ActionRequest.actor` já é `Actor.SYSTEM` (`ConditionEngine`)."""
+
+    def on_action(request: ActionRequest) -> None:
+        tools = build_tool_registry(settings)
+        try:
+            executor = build_action_executor(
+                settings, store=store, actions=actions, tools=tools, skills=skills
+            )
+            executor.submit(request)
+        finally:
+            tools.close()
+
+    return on_action
+
+
+def _build_proactivity(
+    settings: Settings,
+    *,
+    store: SqliteEventStore,
+    actions: SqliteActionRepository,
+    tasks: SqliteTaskRepository,
+    context: ContextEngine,
+    memories: SqliteMemoryRepository,
+    skills: SkillRegistry,
+) -> ProactivityRuntime:
+    """Monta o bus compartilhado de `jarvis run` e, só se
+    `JARVIS_PROACTIVITY_ENABLED`, inscreve Trigger Engine e Conditional
+    Trigger nele. Ver ADR-0029: autonomia real é opt-in em cada camada —
+    sem o interruptor, o bus se comporta exatamente como o descartável de
+    `_build_publisher(store)`, só que vive mais tempo.
+    """
+    bus = EventBus()
+    bus.subscribe(LoggingEventConsumer())
+    bus.subscribe(ActionEventConsumer(actions), event_types=CONFIRMATION_EVENT_TYPES)
+
+    notifications = build_notification_manager(settings)
+    task_manager = build_task_manager(settings, repository=tasks)
+    proactivity = ProactivityRuntime(
+        bus=bus, notifications=notifications, task_manager=task_manager
+    )
+
+    if not settings.proactivity_enabled:
+        return proactivity
+
+    trigger_engine = build_trigger_engine(settings)
+    if trigger_engine.rules:
+        on_match = _make_trigger_callback(
+            settings,
+            store=store,
+            context=context,
+            memories=memories,
+            skills=skills,
+            actions=actions,
+            proactivity=proactivity,
+        )
+        bus.subscribe(TriggerEventConsumer(trigger_engine, on_match=on_match))
+
+    # Regras condicionais executam de verdade (ADR-0016) — por isso exigem o
+    # mesmo opt-in de execução que voz e CLI já exigem, não só o interruptor
+    # geral. Ao contrário do Trigger Engine (que pode só notificar), uma
+    # regra condicional não tem modo "só avisar".
+    if settings.proactivity_execute_actions:
+        condition_engine = build_condition_engine(settings)
+        if condition_engine.rules:
+            on_action = _make_condition_callback(
+                settings, store=store, actions=actions, skills=skills
+            )
+            bus.subscribe(
+                ConditionalTriggerConsumer(
+                    condition_engine, context_reader=context.current, on_action=on_action
+                )
+            )
+
+    return proactivity
+
+
 def _apply_retention(settings: Settings, sessions: SqliteVoiceSessionRepository) -> None:
     """A retenção roda na inicialização, não num job: o processo residente é o
     único momento em que o Jarvis sabe que está vivo."""
@@ -2090,15 +2501,40 @@ def _run_resident(args: argparse.Namespace, settings: Settings) -> int:
         SqliteMemoryRepository.open(memory_store_path(settings)) as memories,
         SqliteActionRepository.open(action_store_path(settings)) as actions,
         SqliteVoiceSessionRepository.open(voice_store_path(settings)) as sessions,
+        SqliteTaskRepository.open(task_store_path(settings)) as tasks,
     ):
         _apply_retention(settings, sessions)
         context = _prepared_context(store, snapshots)
+        proactivity = _build_proactivity(
+            settings,
+            store=store,
+            actions=actions,
+            tasks=tasks,
+            context=context,
+            memories=memories,
+            skills=skills,
+        )
+        # Ferramentas/executor de tarefas vivem pelo processo inteiro: um
+        # `ToolRegistry` novo por tick reabriria conexão MCP a cada
+        # `panel_refresh_seconds` (ADR-0027 escolhe ticar, não escolhe pagar
+        # esse custo).
+        task_tools = build_tool_registry(settings)
+        task_executor = build_action_executor(
+            settings, store=store, actions=actions, tools=task_tools, skills=skills
+        )
+
+        def tick_tasks() -> None:
+            proactivity.task_manager.run_due(executor=task_executor)
+
+        tick_tasks()
+
         bridge = PanelBridge(
             live=LiveState(),
             service=build_observability_service(
                 settings, store=store, context=context, memories=memories, actions=actions
             ),
             refresh_seconds=settings.panel_refresh_seconds,
+            on_refresh=tick_tasks,
         )
         bridge.refresh()
 
@@ -2124,6 +2560,7 @@ def _run_resident(args: argparse.Namespace, settings: Settings) -> int:
                     sessions=sessions,
                     skills=skills,
                     execute=execute,
+                    proactivity=proactivity,
                 )
             elif panel is not None:
                 _serve_panel_only(settings, bridge=bridge, once=getattr(args, "once", False))
@@ -2135,6 +2572,7 @@ def _run_resident(args: argparse.Namespace, settings: Settings) -> int:
         finally:
             if panel is not None:
                 panel.stop()
+            task_tools.close()
     return EXIT_OK
 
 
@@ -2148,12 +2586,33 @@ def _serve_voice(
     sessions: SqliteVoiceSessionRepository,
     skills: SkillRegistry,
     execute: bool,
+    proactivity: ProactivityRuntime,
 ) -> None:
     stt = build_stt(settings)
     tts = build_tts(settings)
     source, sink = build_audio_io(settings)
     wake, trigger = build_wake_detector(settings, stt=stt)
-    publisher = _build_publisher(store)
+    # Bus compartilhado (Fase 7.7): sessão de voz publica nele, não num bus
+    # descartável — é o que faz o Trigger Engine/Conditional Trigger, já
+    # inscritos em `_build_proactivity`, também verem eventos de voz.
+    publisher = _build_publisher(store, bus=proactivity.bus)
+
+    # O `NotificationManager` construído em `_build_proactivity` não tinha
+    # `tts`/`sink` ainda — refeito aqui com o canal de voz, console como
+    # fallback. `proactivity` é mutável de propósito: o callback do Trigger
+    # Engine lê `proactivity.notifications` a cada evento, não uma vez só, e
+    # por isso enxerga esta troca mesmo tendo sido montado antes dela.
+    voice_state = [VoiceState.IDLE]
+    proactivity.notifications = build_notification_manager(
+        settings,
+        voice_channel=VoiceNotificationChannel(
+            tts=tts, sink=sink, can_speak_now=lambda: voice_state[0] is VoiceState.IDLE
+        ),
+    )
+
+    def on_status(status: VoiceStatus) -> None:
+        voice_state[0] = status.state
+        bridge.on_status(status)
 
     def on_session(session: VoiceSession, started: bool) -> None:
         # O fato vira evento aqui, no root: identidade e contagem, nunca conteúdo.
@@ -2171,6 +2630,7 @@ def _serve_voice(
         skills=skills,
         execute=execute,
         on_trace=bridge.on_trace,
+        bus=proactivity.bus,
     )
     loop = VoiceLoop(
         source=source,
@@ -2181,7 +2641,7 @@ def _serve_voice(
         agent=agent,
         sessions=sessions,
         settings=build_voice_settings(settings),
-        on_status=bridge.on_status,
+        on_status=on_status,
         on_session=on_session,
     )
 
@@ -2259,6 +2719,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _action(args, settings)
         if args.command == "decisions":
             return _decisions(args, settings)
+        if args.command == "tasks":
+            return _tasks(args, settings)
         if args.command == "voice":
             return _voice(args, settings)
         if args.command == "panel":
@@ -2298,6 +2760,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         # logo abaixo.
         VoiceError,
         InterfaceError,
+        # Fase 7: proatividade, notificação, decision log e tarefas seguem a
+        # mesma regra — erro de domínio é entrada/estado inválido, nunca
+        # indisponibilidade.
+        ProactivityError,
+        NotifyError,
+        DecisionLogError,
+        TaskError,
     ) as error:
         print(f"erro: {error}", file=sys.stderr)
         return EXIT_INVALID_INPUT
@@ -2312,6 +2781,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         SpeechToTextError,
         TextToSpeechError,
         VoiceRepositoryError,
+        TaskRepositoryError,
     ) as error:
         print(f"erro: {error}", file=sys.stderr)
         return EXIT_INFRASTRUCTURE_ERROR

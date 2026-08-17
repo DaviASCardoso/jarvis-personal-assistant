@@ -134,6 +134,27 @@ class Settings(BaseSettings):
     panel_memory_limit: int = 10
     panel_open_browser: bool = False
 
+    # --- Fase 7: proatividade ----------------------------------------------
+    # Três interruptores independentes, todos default-off: sem os três,
+    # `jarvis run` se comporta exatamente como antes da Fase 7 (ver
+    # ADR-0029). Uma allowlist vazia nunca casa nada, mesmo critério de
+    # `policy_granted_capabilities`.
+    proactivity_enabled: bool = False
+    proactivity_trigger_event_types: str = ""
+    proactivity_importance_threshold: float = 0.6
+    proactivity_execute_actions: bool = False
+    # `None` desliga a janela de silêncio.
+    proactivity_quiet_hours_start: int | None = None
+    proactivity_quiet_hours_end: int | None = None
+    proactivity_notification_cooldown_seconds: float = 900.0
+    # Ausente = nenhuma regra condicional. Todo o resto do sistema funciona sem.
+    proactivity_rules_path: Path | None = None
+
+    notify_silent_mode: bool = False
+
+    tasks_max_attempts: int = 3
+    tasks_retry_base_delay_seconds: float = 30.0
+
 
 def load_settings() -> Settings:
     """Carrega a configuração atual."""
