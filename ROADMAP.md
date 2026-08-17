@@ -1153,15 +1153,15 @@ feat: implement event trigger engine
 
 ## 7.2 — Interruption Policy
 
-- [ ] Considerar importância
-- [ ] Considerar atividade do usuário
-- [ ] Considerar foco
-- [ ] Considerar horário
-- [ ] Considerar localização
-- [ ] Considerar conversa atual
-- [ ] Considerar notificações recentes
-- [ ] Criar política de interrupção
-- [ ] Criar testes
+- [x] Considerar importância
+- [x] Considerar atividade do usuário — reaproveitado de `ImportanceAssessment.interruption_cost` (Fase 4), não recalculado
+- [x] Considerar foco — idem; `focus` já pesa em `interruption_cost`
+- [x] Considerar horário — janela de silêncio configurável, hora local derivada de `utc_offset`
+- [x] Considerar localização — Location Provider não existe (decisão da 2.2); considerada e registrada como neutra, nunca inventada
+- [x] Considerar conversa atual — `ConversationContext.active_id` fresco suprime
+- [x] Considerar notificações recentes — cooldown por assunto, histórico injetado por quem chama
+- [x] Criar política de interrupção
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -1892,7 +1892,7 @@ TTS
 | 2026-08-14 | 6.7 | ✅ | `feat: implement observability panel` (subfase acrescentada — ver 6.7) |
 | 2026-08-14 | 6.8 | ✅ | `feat: serve voice and panel from one process` (subfase acrescentada — ver 6.8) |
 | 2026-08-17 | 7.1 | ✅ | `feat: implement event trigger engine` |
-| — | 7.2 | ⬜ | — |
+| 2026-08-17 | 7.2 | ✅ | `feat: implement interruption policy` |
 | — | 7.3 | ⬜ | — |
 | — | 7.4 | ⬜ | — |
 | — | 7.5 | ⬜ | — |

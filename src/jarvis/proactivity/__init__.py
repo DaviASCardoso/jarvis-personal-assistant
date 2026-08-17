@@ -11,12 +11,24 @@ from jarvis.proactivity.errors import (
     InvalidTriggerRuleError,
     ProactivityError,
 )
+from jarvis.proactivity.interruption import (
+    DEFAULT_INTERRUPTION_SETTINGS,
+    InterruptionDecision,
+    InterruptionPolicy,
+    InterruptionSettings,
+    RecentNotification,
+)
 from jarvis.proactivity.triggers import TriggerEngine, TriggerEventConsumer, TriggerRule
 
 __all__ = [
+    "DEFAULT_INTERRUPTION_SETTINGS",
+    "InterruptionDecision",
+    "InterruptionPolicy",
+    "InterruptionSettings",
     "InvalidConditionError",
     "InvalidTriggerRuleError",
     "ProactivityError",
+    "RecentNotification",
     "TriggerEngine",
     "TriggerEventConsumer",
     "TriggerRule",
