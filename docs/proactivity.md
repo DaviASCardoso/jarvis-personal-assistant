@@ -5,7 +5,7 @@
 `src/jarvis/tasks/` desde a Fase 7, e o wiring correspondente em `cli.py`.
 Não é normativo — para as regras que este código precisa respeitar, ver
 [`architecture-contracts.md §3.15–3.17`](architecture-contracts.md) e os
-ADRs 0026–0029.
+ADRs 0026–0029, 0032.
 
 ## Visão geral
 
@@ -66,12 +66,12 @@ Sem os três, `jarvis run` se comporta exatamente como antes da Fase 7.
   silêncio configurável e cooldown por assunto. Localização é considerada e
   registrada como neutra — o Location Provider não existe (decisão da 2.2).
 - **`ConditionEngine`/`ConditionalRule`/`Condition`** (`conditions.py`) —
-  linguagem de condição fechada (seis operadores: `always`,
-  `context_equals`, `context_present`, `payload_equals`, `and`, `or`,
-  `not`), sem `eval`. Produz uma `ActionRequest(actor=Actor.SYSTEM)`
-  diretamente — **sem LLM**. `adapters/rules_config.py` carrega regras de um
-  JSON (formato documentado no próprio módulo); arquivo ausente é "nenhuma
-  regra", não erro.
+  linguagem de condição fechada (oito operadores: `always`,
+  `context_equals`, `context_present`, `payload_equals`, `memory_present`,
+  `memory_equals` [Fase 9.3], `and`, `or`, `not`), sem `eval`. Produz uma
+  `ActionRequest(actor=Actor.SYSTEM)` diretamente — **sem LLM**.
+  `adapters/rules_config.py` carrega regras de um JSON (formato documentado
+  no próprio módulo); arquivo ausente é "nenhuma regra", não erro.
 
 ## `jarvis.notify` (7.3)
 
@@ -129,6 +129,17 @@ por sessão) — ver [ADR-0027](adr/0027-background-tasks-ticked-not-scheduled.m
 
 `jarvis tasks list|show <id>|cancel <id>|run-due`.
 
+**Fase 9.1 — fechamento do loop.** `run_due` aceita um `on_outcome` opcional,
+chamado uma vez por tarefa que chegar a um estado **terminal**
+(`succeeded`/`failed`, nunca uma tentativa que só agendou retry). O
+composition root usa isso para reinvocar o Agent Runtime com o desfecho
+(`ActionResultSummary`/`last_action_result`, mesmo mecanismo de
+`agent ask --execute` — ver [agent-runtime.md](agent-runtime.md)), gerando
+uma segunda decisão quando o resultado não foi sucesso. O caminho proativo
+do Trigger Engine ganhou o mesmo tratamento: `on_match` agora reflete sobre
+o desfecho de uma ação executada e, se houver mensagem, entrega uma segunda
+notificação.
+
 ## Bancos de dados
 
 Sexto banco: `data/tasks.db` (`SqliteTaskRepository`), mesmo critério dos
@@ -150,6 +161,47 @@ poller entre processos nesta fase, e não deveria existir sem necessidade
 concreta (`architecture-contracts.md §1`). Fontes externas de eventos
 (email, calendário) continuam fora de escopo desta fase — ver
 `docs/phase-7-plan.md`.
+
+## Memória em Conditional Triggers (Fase 9.3)
+
+`architecture-contracts.md §3.17` proibia `jarvis.proactivity` de conhecer
+`jarvis.memory`. A Fase 9.3 abre uma exceção pontual — leitura,
+unidirecional, só via bridge adapter — documentada em
+[ADR-0032](adr/0032-proactivity-memory-presence-bridge.md), replicando
+exatamente o padrão já usado entre Memory e Context
+(`memory/adapters/context_bridge.py`, Fase 3.7):
+
+- `jarvis.proactivity.ports.MemoryPresence` — port de um método só
+  (`content_for(subject) -> str | None`), definido pelo Core.
+- `jarvis.proactivity.adapters.memory_bridge.MemoryPresenceBridge` — único
+  módulo do pacote autorizado a importar `jarvis.memory`; traduz `subject`
+  numa `RetrievalQuery(criteria=MemoryCriteria(subject=..., active_at=agora,
+  limit=1))` e devolve o `content` da memória vigente, ou `None`.
+- `memory_present(subject)`/`memory_equals(subject, value)` — sem um port
+  injetado, nunca casam; a ausência nunca vira presença assumida.
+- O composition root só constrói o bridge quando
+  `proactivity_execute_actions` está ligado — mesmo gate que Conditional
+  Triggers já exigem desde o ADR-0029.
+
+Exemplo real: uma preferência "não notificar depois das 22h" suprimindo uma
+regra, usando o operador `not_` já existente:
+
+```python
+ConditionalRule(
+    rule_id="notify_unless_quiet_hours",
+    when=frozenset({"notification.candidate"}),
+    condition=not_(memory_present("quiet_hours_preference")),
+    then=ActionTemplate(skill="..."),
+)
+```
+
+## Goal Pursuit Loop (Fase 9.2)
+
+`jarvis agent pursue "<objetivo>"` não vive em `jarvis.proactivity` — é um
+comando manual do composition root (`cli._agent_pursue`), sem caminho
+proativo automático por decisão de escopo (ver `ROADMAP.md` subfase 9.4:
+nenhuma regra real pede execução multi-passo disparada por evento sem
+supervisão direta). Documentado em [agent-runtime.md](agent-runtime.md).
 
 ## Comandos de CLI novos
 

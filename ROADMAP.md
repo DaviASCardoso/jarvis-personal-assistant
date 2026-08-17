@@ -23,7 +23,7 @@ nota na própria seção — não fazia parte do plano original de 16 semanas):
 - [x] **Fase 6 — Voice**
 - [x] **Fase 7 — Proactivity + Autonomy**
 - [x] **Fase 8 — Integration + Hardening**
-- [ ] **Fase 9 — Deepening Reasoning + Autonomy** (adicionada pós-v0.1)
+- [x] **Fase 9 — Deepening Reasoning + Autonomy** (adicionada pós-v0.1)
 
 ## Metodologia de desenvolvimento
 
@@ -1616,11 +1616,17 @@ feat: integrate goal pursuit and memory-aware proactivity
 
 ## 9.5 — Documentation Review
 
-- [ ] Atualizar `docs/agent-runtime.md`, `docs/proactivity.md`
-- [ ] Atualizar `docs/architecture-contracts.md` §3.15 (composition root pode
-      reinvocar `AgentRuntime.handle` em sequência limitada)
-- [ ] Atualizar `README.md` (`jarvis agent pursue`)
-- [ ] Atualizar este `ROADMAP.md` subfase a subfase (já feito nesta sessão,
+- [x] Atualizar `docs/agent-runtime.md` (nova seção "Fechamento do loop e
+      Goal Pursuit", correção de duas afirmações desatualizadas em
+      "Limitações conhecidas"), `docs/proactivity.md` (memória em Conditional
+      Triggers, `on_outcome`, Goal Pursuit como comando manual)
+- [x] Atualizar `docs/architecture-contracts.md` §3.4 (não §3.15, que é
+      Decision Log — corrigido durante a implementação: composition root
+      pode reinvocar `AgentRuntime.handle` em sequência limitada); §3.17 já
+      atualizado na 9.3
+- [x] Atualizar `README.md` (`jarvis agent pursue`, memória em Conditional
+      Triggers, status da Fase 9)
+- [x] Atualizar este `ROADMAP.md` subfase a subfase (já feito nesta sessão,
       conforme cada uma concluiu)
 
 **Commit esperado:**
@@ -1641,7 +1647,7 @@ docs: document goal pursuit and memory-aware proactivity
 
 ### Fase 9 completa
 
-- [ ] **FASE 9 CONCLUÍDA**
+- [x] **FASE 9 CONCLUÍDA**
 
 ---
 
@@ -1803,7 +1809,7 @@ O sistema consegue decidir quando deve falar e agir.
 [x] Goal Pursuit Loop
 [x] Memory-Aware Conditional Triggers
 [x] Proactivity + Reasoning Integration
-[ ] Documentation
+[x] Documentation
 ```
 
 O sistema fecha o loop `observe result` e persegue objetivos em múltiplos
@@ -2094,6 +2100,7 @@ TTS
 | 2026-08-17 | 9.2 | ✅ | `feat: implement goal pursuit loop` |
 | 2026-08-17 | 9.3 | ✅ | `feat: add memory-aware conditional triggers` |
 | 2026-08-17 | 9.4 | ✅ | `feat: integrate goal pursuit and memory-aware proactivity` |
+| 2026-08-17 | 9.5 | ✅ | `docs: document goal pursuit and memory-aware proactivity` |
 
 ---
 

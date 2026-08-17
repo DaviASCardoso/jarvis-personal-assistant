@@ -255,8 +255,12 @@ mudou é que agora existe alguém para recebê-la.
 - **Segundo turno só quando dá errado.** Em `act_and_notify` bem-sucedido a
   mensagem do agente já existe, e pagar uma chamada extra para reformular o que
   já foi dito é desperdício de quota. Numa negação ou falha, a frase em
-  linguagem natural vale a chamada — e é aí que o "observe result" do loop 4.6 se
-  fecha.
+  linguagem natural vale a chamada — e é aí que o "observe result" do loop 4.6
+  começa a se fechar. Até a Fase 8 esse fechamento só existia neste caminho
+  síncrono (`agent ask --execute`); a Fase 9.1 reaproveita o mesmo mecanismo
+  (`_reflect_on_outcome`, no composition root) para o Background Task Manager
+  e o Trigger Engine — ver "Fechamento do loop e Goal Pursuit (Fase 9)"
+  abaixo.
 
 `runtime.py`, `decision.py`, `ports.py` e o adapter Gemini **não mudaram** na
 Fase 5. `prompt.py` ganhou `Capability.parameters`, `PromptBudget.max_capabilities`
@@ -294,8 +298,10 @@ que o runtime não grava memória.
 
 ## Limitações conhecidas
 
-- **`notify`/`ask` não entregam nada**: falta o Notification System (7.3). A
-  mensagem só chega ao usuário se ele estiver olhando o terminal.
+- **`notify`/`ask` entregam via Notification Manager desde a Fase 7.3**
+  (console sempre, voz quando há canal utilizável) — o texto abaixo é
+  histórico da Fase 4, quando isso ainda não existia; ver
+  [proactivity.md](proactivity.md).
 - **O agente não emite eventos.** Registrar decisões de forma consultável é a
   subfase 7.4 — a trilha de execução (`action.*`, `policy.evaluated`) é emitida
   pela camada de ação, não por ele.
@@ -343,6 +349,35 @@ prompt agora sabe que há uma conversa por voz em andamento; e
 caminho pelo qual a voz relata o desfecho de uma ação.
 
 Ver [voice.md](voice.md).
+
+## Fechamento do loop e Goal Pursuit (Fase 9)
+
+O diagrama-alvo do `ROADMAP.md` sempre incluiu um passo `execute → observe
+result` que a subfase 4.6 deixou explicitamente incompleto ("o ciclo se
+fecha quando esses componentes existirem"). A Fase 9.1 fecha esse passo nos
+caminhos que ainda o deixavam aberto:
+
+| Caminho | Onde o resultado se perdia antes | Fechamento (9.1) |
+|---|---|---|
+| `agent ask --execute` | — já fechava, via `_explain_outcome` | reaproveitado sem mudança de comportamento |
+| Background Task Manager (7.5) | `TaskManager._settle` só mudava `TaskStatus` | `on_outcome` opcional em `run_due`, chamado só em estado terminal |
+| Trigger Engine (7.1) proativo | `executor.submit(...)` tinha o retorno descartado | `on_match` reflete, registra a segunda decisão e notifica |
+
+Em todos os três, o mecanismo é o mesmo: `ActionResultSummary` (dado puro,
+sem `jarvis.execution`) alimenta `last_action_result` num segundo
+`runtime.handle(...)`, e sucesso continua sem gerar chamada extra (mesmo
+critério de custo do parágrafo anterior). `AgentRuntime` em si **não mudou**
+— quem decide reinvocar é sempre o composition root.
+
+**Goal Pursuit Loop (9.2, `jarvis agent pursue`)** usa esse fechamento para
+permitir múltiplos passos em direção a um objetivo, sem alterar `Decision`:
+o composition root chama `runtime.handle` em sequência, cada iteração uma
+`Decision` atômica isolada que passa pela Policy Engine individualmente
+(ADR-0003 intacto — o runtime continua só propondo). Cinco critérios de
+parada garantem que o loop nunca insiste sozinho: decisão sem ação proposta,
+teto de passos (`JARVIS_AGENT_PURSUE_MAX_STEPS`), confirmação pendente
+(pausa), negação de política (não insiste) e proposta idêntica à anterior
+(evita repetição). Ver `ROADMAP.md` subfase 9.2 e `tests/test_cli_agent_pursue.py`.
 
 ## Documentos relacionados
 

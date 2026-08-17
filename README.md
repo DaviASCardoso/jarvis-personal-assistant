@@ -3,7 +3,9 @@
 Agente pessoal de IA, construído de forma incremental e orientado a eventos,
 contexto e memória.
 
-> **Status:** Fase 8 — Integration + Hardening concluída (v0.1). O Jarvis registra
+> **Status:** Fase 8 — Integration + Hardening concluída (v0.1); Fase 9 —
+> Deepening Reasoning + Autonomy em andamento (adição pós-v0.1, fora das oito
+> fases originais — ver `ROADMAP.md`). O Jarvis registra
 > acontecimentos como fatos imutáveis, os projeta em um estado atual consultável,
 > lembra (memórias tipadas, com proveniência, validade e ranking explicável),
 > raciocina sobre tudo isso com um LLM atrás de um port vendor-agnóstico e
@@ -25,7 +27,15 @@ contexto e memória.
 > allowlistado), negada por padrão como qualquer capacidade nova, mais
 > `jarvis audit show` (decisão + trilha de ação numa consulta só),
 > avaliação comportamental e testes de falha/recuperação cobrindo dez
-> cenários de degradação. Planejamento completo em [ROADMAP.md](ROADMAP.md).
+> cenários de degradação.
+>
+> A Fase 9 fecha o loop `observe result` nos caminhos assíncronos (Background
+> Task Manager, Trigger Engine — não só no `agent ask --execute` síncrono),
+> acrescenta `jarvis agent pursue` (múltiplos passos em direção a um
+> objetivo, sem que `Decision` deixe de ser atômica) e permite que Conditional
+> Triggers consultem memória de longo prazo (`memory_present`/
+> `memory_equals`, via bridge adapter — [ADR-0032](docs/adr/0032-proactivity-memory-presence-bridge.md)).
+> Planejamento completo em [ROADMAP.md](ROADMAP.md).
 
 ## Requisitos
 
@@ -113,6 +123,9 @@ uv run jarvis agent react --event-id <id>
 
 # submete a ação proposta ao Policy Engine (opt-in)
 uv run jarvis agent ask "grave um lembrete no arquivo notas.txt" --execute
+
+# persegue um objetivo em múltiplos passos, até parar ou pedir confirmação
+uv run jarvis agent pursue "organize os arquivos da pasta" --execute --max-steps 4
 ```
 
 O agente monta contexto + memória + conversa, chama o LLM através de um port
@@ -129,6 +142,15 @@ capacidade, não toca nada fora do processo e se desfaz por supersessão
 ([ADR-0018](docs/adr/0018-memory-writes-outside-the-policy-engine.md)). A saída
 diz o que aconteceu — `gravada como <id>`, `reforçada como <id>` ou `proposta
 recusada: <motivo>` — e o que foi gravado volta no próximo prompt.
+
+`jarvis agent pursue` (Fase 9.2) reinvoca o agente em sequência até um dos
+cinco critérios de parada: decisão sem ação proposta, teto de passos
+(`JARVIS_AGENT_PURSUE_MAX_STEPS`, default 6), confirmação pendente (pausa,
+nunca auto-confirma), negação de política (não insiste) ou proposta idêntica
+à anterior (evita repetição). Cada passo continua uma `Decision` atômica,
+autorizada pela Policy Engine individualmente — "planejar" não é um novo
+tipo de decisão, é o composition root reobservando o resultado do passo
+anterior antes do próximo turno.
 
 ### Skills, tools e ações
 
@@ -224,6 +246,14 @@ JARVIS_PROACTIVITY_ENABLED=true
 JARVIS_PROACTIVITY_TRIGGER_EVENT_TYPES=printer.job_completed   # ou um arquivo de regras:
 JARVIS_PROACTIVITY_RULES_PATH=rules.json
 JARVIS_PROACTIVITY_EXECUTE_ACTIONS=true                        # opt-in, como --execute
+```
+
+Regras condicionais podem consultar memória de longo prazo desde a Fase 9.3
+(`memory_present`/`memory_equals`, [ADR-0032](docs/adr/0032-proactivity-memory-presence-bridge.md)) —
+ex. uma preferência "não notificar depois das 22h" suprimindo uma regra:
+
+```json
+{"op": "not", "children": [{"op": "memory_present", "subject": "quiet_hours_preference"}]}
 ```
 
 ```bash

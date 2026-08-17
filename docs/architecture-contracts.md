@@ -165,7 +165,15 @@ código deve rejeitar qualquer import que a viole.
   `ask` | `act` | `act_and_notify`).
 - **Regra crítica:** o Agent Runtime **nunca executa ações diretamente** —
   só emite `Decision`. Quem executa é Policy → Skill → Tool Router → MCP.
-  Ver [ADR-0003](adr/0003-policy-engine-safety-authority.md).
+  Ver [ADR-0003](adr/0003-policy-engine-safety-authority.md). Desde a Fase
+  9.1/9.2, o composition root pode chamar `AgentRuntime.handle()` mais de
+  uma vez em sequência para um único estímulo externo — reobservando o
+  resultado da ação anterior (`last_action_result`) antes do próximo turno.
+  Isso não é o runtime executando ações repetidamente: cada chamada continua
+  emitindo uma `Decision` isolada, que o composition root submete
+  individualmente à Policy Engine, como sempre. "Planejamento" multi-passo
+  (`jarvis agent pursue`, 9.2) vive inteiramente nessa reinvocação externa,
+  nunca num novo tipo de `Decision`.
 - **Dependências permitidas:** Domain (`Event`, `Context`, `Memory`,
   `Decision`), `LLMProvider` port, `PromptBuilder` próprio, serviços de
   aplicação de Memory/Context.
