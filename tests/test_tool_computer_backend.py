@@ -168,6 +168,44 @@ class TestCloseApp:
             invoke(backend, CLOSE_APP, {"application": "inexistente"})
 
 
+class TestDefaultTerminateNeverKillsItself:
+    """Fase 8.8 — revisão de limites de segurança: `_default_terminate_processes`
+    nunca pode encerrar o próprio processo do Jarvis, mesmo que `application`
+    bata com o nome do interpretador (`python`/`pythonw`). Exclusão por
+    `pid`, não por nome — verificada aqui contra um `psutil.process_iter`
+    dublado, nunca contra processos reais da máquina."""
+
+    def test_a_match_on_the_current_pid_is_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import os
+
+        import psutil
+
+        from jarvis.tools.adapters import computer_backend
+
+        current_pid = os.getpid()
+        other_pid = current_pid + 1
+        terminated_pids: list[int] = []
+
+        class _FakeProcess:
+            def __init__(self, pid: int, name: str) -> None:
+                self.pid = pid
+                self.info = {"name": name}
+
+            def terminate(self) -> None:
+                terminated_pids.append(self.pid)
+
+        fake_processes = [
+            _FakeProcess(current_pid, "python.exe"),
+            _FakeProcess(other_pid, "python.exe"),
+        ]
+        monkeypatch.setattr(psutil, "process_iter", lambda attrs: fake_processes)
+
+        terminated = computer_backend._default_terminate_processes("python")
+
+        assert terminated_pids == [other_pid]
+        assert terminated == 1
+
+
 class TestLoadCommandAllowlist:
     def test_a_missing_file_is_an_empty_allowlist(self, tmp_path: Path) -> None:
         assert load_command_allowlist(tmp_path / "ausente.json") == {}

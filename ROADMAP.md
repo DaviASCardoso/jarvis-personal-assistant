@@ -1427,14 +1427,14 @@ perf: optimize context and memory retrieval
 
 ## 8.8 — Runtime Hardening
 
-- [ ] Revisar concorrência
-- [ ] Revisar tratamento de erros
-- [ ] Revisar timeouts
-- [ ] Revisar retries
-- [ ] Revisar logs
-- [ ] Revisar dependências
-- [ ] Revisar limites de segurança
-- [ ] Corrigir problemas críticos
+- [x] Revisar concorrência (nada novo: Fase 8 é síncrona, mesmo modelo de processo único do ADR-0023)
+- [x] Revisar tratamento de erros (providers/backend só capturam a exceção esperada; o resto propaga — mesmo contrato do resto do projeto)
+- [x] Revisar timeouts (GPU via PowerShell com timeout fixo; `run_command` usa o timeout do Tool Router, não um valor próprio)
+- [x] Revisar retries (`ComputerToolBackend` não implementa retry próprio; `Idempotency.UNSAFE` em open_app/close_app/run_command já impede o router de repetir)
+- [x] Revisar logs (nenhum logger novo nos providers/backend/skills — o que loga já existe na camada de execução/router, que já redige o que não pode vazar)
+- [x] Revisar dependências (`psutil` é a única nova, sem transitiva inesperada — ADR-0030)
+- [x] Revisar limites de segurança (allowlist fechada para open_app/run_command — ADR-0031; achado real na revisão: ver "Corrigir problemas críticos")
+- [x] Corrigir problemas críticos (`computer.close_app` podia encerrar o próprio processo do Jarvis se `application` batesse com `python`/`pythonw` — corrigido com exclusão por `pid`, testada em `TestDefaultTerminateNeverKillsItself`)
 
 **Commit esperado:**
 
@@ -1915,7 +1915,7 @@ TTS
 | 2026-08-17 | 8.5 | ✅ | `test: add agent behavioral evaluation suite` |
 | 2026-08-17 | 8.6 | ✅ | `test: add failure and recovery scenarios` |
 | 2026-08-17 | 8.7 | ✅ | `perf: optimize context and memory retrieval` (nenhuma otimização foi necessária — ver 8.7) |
-| — | 8.8 | ⬜ | — |
+| 2026-08-17 | 8.8 | ✅ | `refactor: harden agent runtime` |
 | — | 8.9 | ⬜ | — |
 | — | 8.10 | ⬜ | — |
 

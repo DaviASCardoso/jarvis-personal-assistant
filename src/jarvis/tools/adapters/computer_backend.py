@@ -18,6 +18,7 @@ chama `ctypes`, `psutil` ou `subprocess` de verdade.
 
 import json
 import logging
+import os
 import platform
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
@@ -212,9 +213,17 @@ def _default_launch(argv: Sequence[str]) -> None:
 
 
 def _default_terminate_processes(application: str) -> int:
+    """Nunca encerra o próprio processo do Jarvis (Fase 8.8 — revisão de
+    limites de segurança). Um `application` cuja substring bata com o nome
+    do interpretador (`python`/`pythonw`) mataria quem está executando esta
+    chamada antes de devolver o resultado — auto-exclusão por `pid`, não por
+    nome, porque o nome do executável não é estável entre ambientes."""
     target = application.lower()
+    current_pid = os.getpid()
     terminated = 0
     for process in psutil.process_iter(["name"]):
+        if process.pid == current_pid:
+            continue
         try:
             name = process.info.get("name")
             if isinstance(name, str) and target in name.lower():
