@@ -1328,14 +1328,14 @@ feat: implement computer skill
 
 ## 8.3 — Permission System
 
-- [ ] Definir permission model
-- [ ] Definir níveis de risco
-- [ ] Definir capabilities
-- [ ] Implementar allowlist
-- [ ] Implementar denylist
-- [ ] Integrar Skills
-- [ ] Integrar MCP
-- [ ] Integrar Computer Skill
+- [x] Definir permission model (já existe desde a Fase 5 — `jarvis/policy/`)
+- [x] Definir níveis de risco (já existe desde a Fase 5 — `RiskLevel`)
+- [x] Definir capabilities (`computer:read/open/close/run`, Fase 8.2)
+- [x] Implementar allowlist (`policy_granted_capabilities`, já existe — vazio nega as quatro por padrão)
+- [x] Implementar denylist (já existe desde a Fase 5 — `policy_denied_skills`/`policy_denied_effects`)
+- [x] Integrar Skills (provado contra o Policy Engine real em `tests/test_computer_permission_integration.py`)
+- [x] Integrar MCP (nenhuma mudança necessária — MCP já passa pelo mesmo `PolicyEngine` desde a Fase 5)
+- [x] Integrar Computer Skill
 
 **Commit esperado:**
 
@@ -1910,7 +1910,7 @@ TTS
 | 2026-08-17 | 7.7 | ✅ | `feat: enable proactive agent behavior` |
 | 2026-08-17 | 8.1 | ✅ | `feat: implement computer context providers` |
 | 2026-08-17 | 8.2 | ✅ | `feat: implement computer skill` |
-| — | 8.3 | ⬜ | — |
+| 2026-08-17 | 8.3 | ✅ | `feat: implement permission system` |
 | — | 8.4 | ⬜ | — |
 | — | 8.5 | ⬜ | — |
 | — | 8.6 | ⬜ | — |
