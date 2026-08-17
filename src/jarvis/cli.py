@@ -1061,11 +1061,28 @@ def build_parser() -> argparse.ArgumentParser:
     ask = agent_actions.add_parser("ask", help="Faz uma pergunta e imprime a decisão.")
     ask.add_argument("text", help="A mensagem para o agente.")
     ask.add_argument("--conversation-id", help="Correlaciona turnos da mesma conversa.")
+    ask.add_argument(
+        "--max-steps",
+        type=int,
+        default=1,
+        help="Teto de passos para o mesmo pedido (Fase 10.2; default 1 — uma ação só).",
+    )
 
     chat = agent_actions.add_parser(
         "chat", help="Conversa multi-turno lendo uma mensagem por linha da entrada padrão."
     )
     chat.add_argument("--conversation-id")
+    chat.add_argument(
+        "--execute",
+        action="store_true",
+        help="Submete a ação proposta ao Policy Engine (por padrão a decisão só é impressa).",
+    )
+    chat.add_argument(
+        "--max-steps",
+        type=int,
+        default=1,
+        help="Teto de passos por linha digitada (Fase 10.2; default 1 — uma ação só).",
+    )
 
     react = agent_actions.add_parser("react", help="Avalia proativamente um evento já registrado.")
     react.add_argument("--event-id", required=True)
@@ -1805,6 +1822,102 @@ def _explain_outcome(
         print(f"agente      {follow_up.decision.message}")
 
 
+def _run_agent_loop(
+    settings: Settings,
+    *,
+    store: SqliteEventStore,
+    context: ContextEngine,
+    memory_manager: MemoryManager,
+    skills: SkillRegistry,
+    runtime: AgentRuntime,
+    recent: tuple[EventSummary, ...],
+    agent_input: AgentInput,
+    conversation: Conversation | None,
+    conversation_id: str,
+    max_steps: int,
+    execute: bool,
+) -> tuple[AgentTurn, MemoryWrite]:
+    """Miolo comum de `agent ask`/`agent chat`/`agent pursue` (Fase 10.2).
+
+    `Decision` continua atômica (ADR-0003 intacto): cada passo é uma proposta
+    isolada, submetida à Policy Engine individualmente. Com `max_steps=1`
+    (default de `ask`/`chat`) o comportamento é byte a byte o de antes da
+    Fase 10.2 — inclusive a ausência de `passo N/M`/`parado: N passos
+    atingidos`, impressos só quando `max_steps > 1`.
+
+    Devolve o último `AgentTurn`/`MemoryWrite` processados, para quem chama
+    (tipicamente `agent chat`) atualizar sua própria `Conversation`.
+    """
+    multi_step = max_steps > 1
+    last_result: ActionResultSummary | None = None
+    previous_proposal: tuple[str, Mapping[str, JsonValue]] | None = None
+    last_turn: AgentTurn | None = None
+    last_write = MemoryWrite()
+
+    for step in range(1, max_steps + 1):
+        if multi_step:
+            print(f"passo       {step}/{max_steps}")
+        turn = runtime.handle(
+            agent_input,
+            conversation=conversation,
+            recent_events=recent,
+            capabilities=capabilities_from(skills),
+            last_action_result=last_result,
+        )
+        _record_decision(turn, context_as_of=context.current().as_of, store=store)
+        write = _persist_memory_proposal(turn, memory_manager, provenance=USER_ASSERTION)
+        submitting = execute and turn.decision.proposes_action
+        _print_turn(turn, write=write, submitting=submitting)
+        last_turn, last_write = turn, write
+
+        if not turn.decision.proposes_action:
+            if multi_step:
+                print("agente      concluído: nada mais a propor")
+            break
+        if not execute:
+            break
+
+        proposal = turn.decision.action
+        assert proposal is not None  # garantido por `proposes_action`
+        current = (proposal.skill, proposal.parameters)
+        if current == previous_proposal:
+            print("agente      parado: repetiria a mesma ação")
+            break
+
+        outcome = _submit_proposal(
+            settings, turn=turn, store=store, skills=skills, actor=Actor.USER
+        )
+        if outcome is None:
+            break
+        print()
+        _print_outcome(outcome)
+        _explain_outcome(runtime, outcome, conversation_id=conversation_id, recent=recent)
+
+        if outcome.status is ExecutionStatus.AWAITING_CONFIRMATION:
+            print(
+                f"agente      pausado: confirme com `jarvis action confirm {outcome.execution_id}`"
+            )
+            break
+        if outcome.status in (ExecutionStatus.DENIED, ExecutionStatus.REJECTED):
+            print("agente      parado: ação negada, não insistindo")
+            break
+
+        previous_proposal = current
+        last_result = _result_summary(outcome)
+        agent_input = UserMessage(
+            text="Continue perseguindo o objetivo original considerando o resultado da ação.",
+            at=datetime.now(UTC),
+            conversation_id=conversation_id,
+        )
+        print()
+    else:
+        if multi_step:
+            print(f"agente      parado: {max_steps} passos atingidos")
+
+    assert last_turn is not None  # range(1, max_steps + 1) roda ao menos uma vez
+    return last_turn, last_write
+
+
 def _agent_ask(args: argparse.Namespace, settings: Settings) -> int:
     conversation_id = args.conversation_id or new_event_id()
     skills = build_skill_registry()
@@ -1815,27 +1928,22 @@ def _agent_ask(args: argparse.Namespace, settings: Settings) -> int:
     ):
         context = _prepared_context(settings, store, snapshots)
         runtime = build_agent_runtime(settings, context=context, memories=memories)
-        recent = _recent_events(store)
-        turn = runtime.handle(
-            UserMessage(text=args.text, at=datetime.now(UTC), conversation_id=conversation_id),
-            recent_events=recent,
-            capabilities=capabilities_from(skills),
+        _run_agent_loop(
+            settings,
+            store=store,
+            context=context,
+            memory_manager=build_memory_manager(memories),
+            skills=skills,
+            runtime=runtime,
+            recent=_recent_events(store),
+            agent_input=UserMessage(
+                text=args.text, at=datetime.now(UTC), conversation_id=conversation_id
+            ),
+            conversation=None,
+            conversation_id=conversation_id,
+            max_steps=args.max_steps,
+            execute=args.execute,
         )
-        _record_decision(turn, context_as_of=context.current().as_of, store=store)
-        write = _persist_memory_proposal(
-            turn, build_memory_manager(memories), provenance=USER_ASSERTION
-        )
-        submitting = args.execute and turn.decision.proposes_action
-        _print_turn(turn, write=write, submitting=submitting)
-
-        if submitting:
-            outcome = _submit_proposal(
-                settings, turn=turn, store=store, skills=skills, actor=Actor.USER
-            )
-            if outcome is not None:
-                print()
-                _print_outcome(outcome)
-                _explain_outcome(runtime, outcome, conversation_id=conversation_id, recent=recent)
     return EXIT_OK
 
 
@@ -1844,7 +1952,8 @@ def _agent_chat(args: argparse.Namespace, settings: Settings) -> int:
 
     Sem `input()` interativo de propósito: assim a conversa funciona tanto no
     terminal quanto com entrada redirecionada, e o teste alimenta stdin em vez
-    de simular um terminal.
+    de simular um terminal. Cada linha pode, desde a Fase 10.2, disparar até
+    `--max-steps` ações antes de passar para a próxima linha.
     """
     conversation = Conversation(conversation_id=args.conversation_id or new_event_id())
 
@@ -1857,20 +1966,29 @@ def _agent_chat(args: argparse.Namespace, settings: Settings) -> int:
         runtime = build_agent_runtime(settings, context=context, memories=memories)
         recent = _recent_events(store)
         manager = build_memory_manager(memories)
+        skills = build_skill_registry()
 
         for line in sys.stdin:
             text = line.strip()
             if not text:
                 continue
             now = datetime.now(UTC)
-            turn = runtime.handle(
-                UserMessage(text=text, at=now, conversation_id=conversation.conversation_id),
+            turn, write = _run_agent_loop(
+                settings,
+                store=store,
+                context=context,
+                memory_manager=manager,
+                skills=skills,
+                runtime=runtime,
+                recent=recent,
+                agent_input=UserMessage(
+                    text=text, at=now, conversation_id=conversation.conversation_id
+                ),
                 conversation=conversation,
-                recent_events=recent,
+                conversation_id=conversation.conversation_id,
+                max_steps=args.max_steps,
+                execute=args.execute,
             )
-            _record_decision(turn, context_as_of=context.current().as_of, store=store)
-            write = _persist_memory_proposal(turn, manager, provenance=USER_ASSERTION)
-            _print_turn(turn, write=write)
             print()
             conversation = conversation.append(ConversationTurn(role=Role.USER, text=text, at=now))
             reply = _reply(turn.decision, write)
@@ -1943,66 +2061,22 @@ def _agent_pursue(args: argparse.Namespace, settings: Settings) -> int:
     ):
         context = _prepared_context(settings, store, snapshots)
         runtime = build_agent_runtime(settings, context=context, memories=memories)
-        recent = _recent_events(store)
-        memory_manager = build_memory_manager(memories)
-
-        last_result: ActionResultSummary | None = None
-        agent_input: AgentInput = UserMessage(
-            text=args.goal, at=datetime.now(UTC), conversation_id=conversation_id
+        _run_agent_loop(
+            settings,
+            store=store,
+            context=context,
+            memory_manager=build_memory_manager(memories),
+            skills=skills,
+            runtime=runtime,
+            recent=_recent_events(store),
+            agent_input=UserMessage(
+                text=args.goal, at=datetime.now(UTC), conversation_id=conversation_id
+            ),
+            conversation=None,
+            conversation_id=conversation_id,
+            max_steps=max_steps,
+            execute=True,
         )
-        previous_proposal: tuple[str, Mapping[str, JsonValue]] | None = None
-
-        for step in range(1, max_steps + 1):
-            print(f"passo       {step}/{max_steps}")
-            turn = runtime.handle(
-                agent_input,
-                recent_events=recent,
-                capabilities=capabilities_from(skills),
-                last_action_result=last_result,
-            )
-            _record_decision(turn, context_as_of=context.current().as_of, store=store)
-            write = _persist_memory_proposal(turn, memory_manager, provenance=USER_ASSERTION)
-            _print_turn(turn, write=write, submitting=turn.decision.proposes_action)
-
-            if not turn.decision.proposes_action:
-                print("agente      concluído: nada mais a propor")
-                break
-
-            proposal = turn.decision.action
-            assert proposal is not None  # garantido por `proposes_action`
-            current = (proposal.skill, proposal.parameters)
-            if current == previous_proposal:
-                print("agente      parado: repetiria a mesma ação")
-                break
-
-            outcome = _submit_proposal(
-                settings, turn=turn, store=store, skills=skills, actor=Actor.USER
-            )
-            if outcome is None:
-                break
-            print()
-            _print_outcome(outcome)
-
-            if outcome.status is ExecutionStatus.AWAITING_CONFIRMATION:
-                print(
-                    "agente      pausado: confirme com "
-                    f"`jarvis action confirm {outcome.execution_id}`"
-                )
-                break
-            if outcome.status in (ExecutionStatus.DENIED, ExecutionStatus.REJECTED):
-                print("agente      parado: ação negada, não insistindo")
-                break
-
-            previous_proposal = current
-            last_result = _result_summary(outcome)
-            agent_input = UserMessage(
-                text="Continue perseguindo o objetivo original considerando o resultado da ação.",
-                at=datetime.now(UTC),
-                conversation_id=conversation_id,
-            )
-            print()
-        else:
-            print(f"agente      parado: {max_steps} passos atingidos")
     return EXIT_OK
 
 

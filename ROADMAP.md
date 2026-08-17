@@ -1686,10 +1686,19 @@ feat: add reasoning field to agent decisions
 
 ## 10.2 — Multi-Action por Pedido
 
-- [ ] `_run_agent_loop` extraído em `cli.py`, reaproveitado por `ask`/
-      `chat`/`pursue` — refatoração pura, sem mudança de comportamento
-- [ ] `--max-steps` em `agent ask` e `agent chat` (default 1)
-- [ ] Testes de paridade (refatoração) + testes novos (multi-ação real)
+- [x] `_run_agent_loop` extraído em `cli.py`, reaproveitado por `ask`/
+      `chat`/`pursue` — com `max_steps=1` o comportamento é byte a byte o de
+      antes (paridade provada pela suíte inteira sem alterações)
+- [x] `--max-steps` em `agent ask` e `agent chat` (default 1); `chat` também
+      ganhou `--execute` (não existia — sem ele `--max-steps` não teria
+      efeito) e `capabilities_from(skills)` no envelope (também ausente
+      antes, então `chat` nunca podia propor `act`)
+- [x] Efeito colateral desejado: `_explain_outcome` (explicação em linguagem
+      natural) passou a rodar também quando `pursue` para por confirmação
+      pendente/negação — antes só `ask`/`react` tinham isso
+- [x] Testes de paridade (suíte completa inalterada) + testes novos
+      (`test_cli_action.py`, `test_cli.py`, `test_cli_agent_pursue.py`
+      atualizado para as duas chamadas extras de explicação)
 
 **Commit esperado:**
 

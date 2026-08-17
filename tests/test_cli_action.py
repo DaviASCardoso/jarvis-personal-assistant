@@ -470,6 +470,57 @@ class TestAgentExecute:
 
         assert len(provider.requests) == 1
 
+    def test_max_steps_executes_more_than_one_action_in_a_single_request(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Fase 10.2: um único pedido pode disparar mais de uma ação, não só
+        uma — `agent ask` reaproveita o mesmo loop de `agent pursue` (9.2)."""
+        provider = StubLLMProvider(
+            [
+                decision_json(type="act", message=None, action={"skill": "system.status"}),
+                decision_json(
+                    type="act",
+                    message=None,
+                    action={
+                        "skill": "file.write",
+                        "parameters": {"path": "nota.txt", "content": "oi"},
+                    },
+                ),
+                decision_json(type="notify", message="pronto"),
+            ]
+        )
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+
+        assert (
+            main(
+                ["agent", "ask", "veja o status e grave uma nota", "--execute", "--max-steps", "3"]
+            )
+            == 0
+        )
+
+        out = capsys.readouterr().out
+        assert out.count("status      completed") == 2
+        assert len(provider.requests) == 3
+
+    def test_without_max_steps_only_one_action_runs_even_if_more_are_proposed(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Default `--max-steps 1`: nenhuma mudança de comportamento para
+        quem não pediu múltiplos passos."""
+        provider = StubLLMProvider(
+            [
+                decision_json(type="act", message=None, action={"skill": "system.status"}),
+                decision_json(type="notify", message="não deveria ser chamado de novo para agir"),
+            ]
+        )
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+
+        assert main(["agent", "ask", "status", "--execute"]) == 0
+
+        out = capsys.readouterr().out
+        assert out.count("status      completed") == 1
+        assert len(provider.requests) == 1
+
     def test_an_invented_skill_is_denied_not_executed(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:

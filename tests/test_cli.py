@@ -774,6 +774,50 @@ class TestAgent:
         second = json.loads(provider.requests[1].messages[0].content)
         assert [turn["text"] for turn in second["conversation"]] == ["oi", "primeira"]
 
+    def test_chat_without_execute_never_runs_actions(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Fase 10.2: `chat` ganhou `--execute`/`--max-steps`, mas continua
+        sem executar nada por padrão — mesma regra de `ask`."""
+        provider = StubLLMProvider(
+            [decision_json(type="act", message=None, action={"skill": "system.status"})]
+        )
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+        monkeypatch.setattr("sys.stdin", io.StringIO("como está o sistema?\n"))
+
+        assert main(["agent", "chat"]) == 0
+
+        out = capsys.readouterr().out
+        assert "não executada" in out
+        assert "status      completed" not in out
+
+    def test_chat_with_execute_and_max_steps_runs_more_than_one_action(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Uma linha digitada pode disparar mais de uma ação, como em
+        `agent ask --max-steps`."""
+        provider = StubLLMProvider(
+            [
+                decision_json(type="act", message=None, action={"skill": "system.status"}),
+                decision_json(
+                    type="act",
+                    message=None,
+                    action={
+                        "skill": "file.write",
+                        "parameters": {"path": "nota.txt", "content": "oi"},
+                    },
+                ),
+                decision_json(type="notify", message="pronto"),
+            ]
+        )
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+        monkeypatch.setattr("sys.stdin", io.StringIO("veja o status e grave uma nota\n"))
+
+        assert main(["agent", "chat", "--execute", "--max-steps", "3"]) == 0
+
+        out = capsys.readouterr().out
+        assert out.count("status      completed") == 2
+
     def test_react_evaluates_a_recorded_event(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:

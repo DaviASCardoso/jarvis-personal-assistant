@@ -106,7 +106,8 @@ class TestAgentPursue:
                         "skill": "file.write",
                         "parameters": {"path": "nota.txt", "content": "oi"},
                     },
-                )
+                ),
+                decision_json(type="notify", message="a ação está aguardando sua confirmação"),
             ]
         )
         monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
@@ -116,14 +117,21 @@ class TestAgentPursue:
         out = capsys.readouterr().out
         assert "status      awaiting_confirmation" in out
         assert "agente      pausado: confirme com" in out
+        assert "a ação está aguardando sua confirmação" in out
         assert not (tmp_path / "data" / "workspace" / "nota.txt").exists()
-        assert len(provider.requests) == 1
+        # Fase 10.2: parar por confirmação pendente também pede uma
+        # explicação em linguagem natural (`_explain_outcome`), como já
+        # acontecia em `agent ask --execute` — por isso duas chamadas, não uma.
+        assert len(provider.requests) == 2
 
     def test_stops_when_policy_denies_the_action(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         provider = StubLLMProvider(
-            [decision_json(type="act", message=None, action={"skill": "not.a.real.skill"})]
+            [
+                decision_json(type="act", message=None, action={"skill": "not.a.real.skill"}),
+                decision_json(type="notify", message="a política recusou essa ação"),
+            ]
         )
         monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
 
@@ -132,7 +140,8 @@ class TestAgentPursue:
         out = capsys.readouterr().out
         assert "status      denied" in out
         assert "agente      parado: ação negada, não insistindo" in out
-        assert len(provider.requests) == 1
+        assert "a política recusou essa ação" in out
+        assert len(provider.requests) == 2
 
     def test_without_a_goal_argument_is_a_usage_error(self) -> None:
         with pytest.raises(SystemExit):
