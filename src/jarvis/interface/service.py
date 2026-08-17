@@ -17,6 +17,8 @@ from datetime import UTC, datetime
 from typing import Final
 
 from jarvis.context.model import CurrentContext, iter_fields
+from jarvis.decisions.query import project_decisions
+from jarvis.decisions.record import DecisionRecord
 from jarvis.errors import JarvisError
 from jarvis.events.event import JsonValue, RecordedEvent
 from jarvis.execution.model import PendingAction
@@ -133,7 +135,7 @@ class ObservabilityService:
             timeline=timeline,
             context=_context_rows(context),
             memories=_memory_cards(memories, trace=trace),
-            decisions=_decision_cards(session, trace=trace),
+            decisions=_decision_cards(session, trace=trace, events=events),
             actions=_action_cards(events, pending),
             tools=_tool_cards(events),
             conversation=_conversation(session),
@@ -228,8 +230,26 @@ def memory_card_of(stored: StoredMemory, *, score: float | None, used: bool) -> 
     return _memory_card(stored, score=score, used=used)
 
 
+def _decision_card_of(record: DecisionRecord) -> DecisionCard:
+    """Traduz um `DecisionRecord` (Fase 7.4) — a mesma forma que `DecisionCard`
+    já tinha desde o ADR-0024, agora com histórico persistido a preenchê-la."""
+    return DecisionCard(
+        decision_type=record.decision_type,
+        decided_at=record.decided_at,
+        reason=record.reason,
+        message=truncate(record.message or "", limit=MAX_MESSAGE_CHARS),
+        correlation_id=record.correlation_id,
+        consulted_llm=record.consulted_llm,
+        importance=record.importance,
+        memory_count=len(record.used_memory_ids),
+    )
+
+
 def _decision_cards(
-    session: VoiceSession | None, *, trace: TurnTrace | None
+    session: VoiceSession | None,
+    *,
+    trace: TurnTrace | None,
+    events: Sequence[RecordedEvent] = (),
 ) -> tuple[DecisionCard, ...]:
     cards: list[DecisionCard] = []
     if trace is not None:
@@ -256,6 +276,17 @@ def _decision_cards(
             for turn in reversed(session.turns)
             if turn.role is TurnRole.ASSISTANT
         )
+
+    # Histórico persistido (7.4), mais recente primeiro; o turno em curso já
+    # está acima via `trace`, então uma decisão com a mesma correlação seria
+    # a mesma história contada duas vezes.
+    seen = {card.correlation_id for card in cards if card.correlation_id}
+    for record in reversed(project_decisions(events)):
+        if record.correlation_id in seen:
+            continue
+        cards.append(_decision_card_of(record))
+        seen.add(record.correlation_id)
+
     return tuple(cards)
 
 

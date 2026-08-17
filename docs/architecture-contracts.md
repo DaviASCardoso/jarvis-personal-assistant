@@ -352,6 +352,30 @@ código deve rejeitar qualquer import que a viole.
   ([ADR-0016](adr/0016-action-execution-orchestrator.md)).
 - **Responsável:** Observability Interface.
 
+### 3.15 Decision Log
+
+> Acrescentado na Fase 7 (subfase 7.4). Generaliza o padrão de trilha de
+> auditoria como eventos ([ADR-0017](adr/0017-audit-trail-as-events.md)) para
+> as decisões do Agent Runtime — que, até aqui, só existiam em memória
+> (`AgentTurn`) durante o turno em que aconteceram. Ver ADR novo (ver §15).
+
+- **Responsabilidade:** modelar e projetar uma trilha consultável de
+  decisões do agente, como eventos, sem repetir o conteúdo de memória ou
+  parâmetros de ação que a Fase 3/5 já protegem.
+- **Permitido conhecer:** Domain próprio (`DecisionRecord`), `jarvis.events.event`
+  (para construir/ler o `Event` `agent.decision_recorded`).
+- **Proibido conhecer:** `jarvis.agent` (`Decision`/`AgentTurn`) — o builder
+  recebe primitivos (`str`/`float`/`datetime`), nunca o tipo do Agent Runtime;
+  quem extrai os campos é sempre o composition root.
+- **Entradas:** primitivos extraídos de um `AgentTurn` pelo composition root.
+- **Saídas:** `Event` (`agent.decision_recorded`), e — na leitura —
+  `DecisionRecord` via `project_decisions`.
+- **Regra crítica:** quem publica o evento é sempre o composition root, nunca
+  o Agent Runtime — a regra "o Agent Runtime não emite eventos" (Fase 4) não
+  muda; o Decision Log só passa a existir porque algo *fora* do Agent Runtime
+  agora observa e registra o que ele decidiu.
+- **Responsável:** Decision Log.
+
 ---
 
 ## 4. LLM Independence
@@ -708,6 +732,9 @@ consequências completas:
   leitor de snapshot, somente leitura (Fase 6).
 - [ADR-0025](adr/0025-voice-transcripts-as-operational-state.md) — Transcrição
   como estado operacional, nunca como evento (Fase 6).
+- [ADR-0026](adr/0026-decision-log-as-events-built-from-primitives.md) —
+  Decision log como eventos, construído a partir de primitivos, sem
+  dependência de `jarvis.agent` (Fase 7).
 - [ADR-0028](adr/0028-console-channel-for-desktop-notifications.md) — Canal
   "desktop" do Notification Manager é console/log, não um toast nativo do SO
   (Fase 7).

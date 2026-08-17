@@ -30,6 +30,8 @@ ALLOWED_JARVIS_IMPORTS = {
     "jarvis.memory.retrieval",
     "jarvis.execution.model",
     "jarvis.voice.session",
+    "jarvis.decisions.query",
+    "jarvis.decisions.record",
 }
 
 FORBIDDEN_EVERYWHERE = {

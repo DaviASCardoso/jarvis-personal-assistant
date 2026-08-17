@@ -58,6 +58,7 @@ from jarvis.context.adapters.device_provider import LocalDeviceProvider
 from jarvis.context.adapters.sqlite_snapshots import SqliteContextSnapshotRepository
 from jarvis.context.adapters.time_provider import SystemTimeProvider
 from jarvis.context.consumer import CONTEXT_EVENT_TYPES
+from jarvis.decisions import DECISION_RECORDED, DecisionRecord, decision_event, project_decisions
 from jarvis.events import (
     Event,
     EventBus,
@@ -199,6 +200,11 @@ VOICE_SOURCE = "jarvis-voice"
 VOICE_SESSION_STARTED = "voice.session_started"
 VOICE_SESSION_ENDED = "voice.session_ended"
 VOICE_EVENT_TYPES = frozenset({VOICE_SESSION_STARTED, VOICE_SESSION_ENDED})
+
+# Fase 7.4: quem publica um `agent.decision_recorded` é sempre o composition
+# root — `jarvis.decisions` recebe primitivos, nunca `Decision`/`AgentTurn`
+# (ver docstring de `jarvis/decisions/events.py`).
+DECISION_SOURCE = "jarvis-agent"
 
 
 @dataclass(frozen=True, slots=True)
@@ -554,6 +560,7 @@ class RuntimeConversationalAgent:
         settings: Settings,
         *,
         runtime: AgentRuntime,
+        context: ContextEngine,
         memories: SqliteMemoryRepository,
         store: SqliteEventStore,
         skills: SkillRegistry,
@@ -563,6 +570,7 @@ class RuntimeConversationalAgent:
     ) -> None:
         self._settings = settings
         self._runtime = runtime
+        self._context = context
         self._memories = memories
         self._store = store
         self._skills = skills
@@ -578,6 +586,7 @@ class RuntimeConversationalAgent:
             recent_events=_recent_events(self._store),
             capabilities=capabilities_from(self._skills),
         )
+        _record_decision(turn, context_as_of=self._context.current().as_of, store=self._store)
         # Mesma proveniência de `agent ask`, e por decisão reavaliada: mesmo com
         # a sessão persistida, o caminho do usuário segue sem `reference`, porque
         # um ponteiro por sessão faria `find_duplicate` tratar cada conversa como
@@ -966,6 +975,13 @@ def build_parser() -> argparse.ArgumentParser:
     reject = action_actions.add_parser("reject", help="Recusa uma ação pendente.")
     reject.add_argument("execution_id")
     reject.add_argument("--reason", default="rejected_by_user")
+
+    decisions = subparsers.add_parser("decisions", help="Consulta decisões do agente.")
+    decisions.set_defaults(decisions_parser=decisions)
+    decisions_actions = decisions.add_subparsers(dest="decisions_command")
+    decisions_list = decisions_actions.add_parser("list", help="Lista decisões registradas.")
+    decisions_list.add_argument("--correlation-id", help="Mostra a cadeia causal inteira.")
+    decisions_list.add_argument("--limit", type=int, default=DEFAULT_LIST_LIMIT)
 
     voice = subparsers.add_parser("voice", help="Fala e escuta.")
     voice.set_defaults(voice_parser=voice)
@@ -1463,6 +1479,33 @@ def _prepared_context(
     return engine
 
 
+def _record_decision(
+    turn: AgentTurn, *, context_as_of: datetime | None, store: SqliteEventStore
+) -> None:
+    """Publica a decisão do turno como evento — Fase 7.4.
+
+    Extrai primitivos de `AgentTurn`/`Decision` aqui, no composition root: é
+    isso que mantém `jarvis.decisions` sem depender de `jarvis.agent`.
+    """
+    decision = turn.decision
+    event = decision_event(
+        decision_id=decision.decision_id,
+        decision_type=decision.type.value,
+        reason=decision.reason,
+        message=decision.message,
+        decided_at=decision.decided_at,
+        correlation_id=decision.correlation_id,
+        causation_id=decision.causation_id,
+        consulted_llm=turn.consulted_llm,
+        importance=turn.importance.total if turn.importance is not None else None,
+        used_memory_ids=turn.used_memory_ids,
+        context_as_of=context_as_of,
+        action_skill=decision.action.skill if decision.action is not None else None,
+        source=DECISION_SOURCE,
+    )
+    _build_publisher(store).publish(event)
+
+
 def _recent_events(store: SqliteEventStore) -> tuple[EventSummary, ...]:
     return tuple(
         EventSummary.from_recorded(recorded)
@@ -1552,15 +1595,15 @@ def _agent_ask(args: argparse.Namespace, settings: Settings) -> int:
         SqliteContextSnapshotRepository.open(context_store_path(settings)) as snapshots,
         SqliteMemoryRepository.open(memory_store_path(settings)) as memories,
     ):
-        runtime = build_agent_runtime(
-            settings, context=_prepared_context(store, snapshots), memories=memories
-        )
+        context = _prepared_context(store, snapshots)
+        runtime = build_agent_runtime(settings, context=context, memories=memories)
         recent = _recent_events(store)
         turn = runtime.handle(
             UserMessage(text=args.text, at=datetime.now(UTC), conversation_id=conversation_id),
             recent_events=recent,
             capabilities=capabilities_from(skills),
         )
+        _record_decision(turn, context_as_of=context.current().as_of, store=store)
         write = _persist_memory_proposal(
             turn, build_memory_manager(memories), provenance=USER_ASSERTION
         )
@@ -1592,9 +1635,8 @@ def _agent_chat(args: argparse.Namespace, settings: Settings) -> int:
         SqliteContextSnapshotRepository.open(context_store_path(settings)) as snapshots,
         SqliteMemoryRepository.open(memory_store_path(settings)) as memories,
     ):
-        runtime = build_agent_runtime(
-            settings, context=_prepared_context(store, snapshots), memories=memories
-        )
+        context = _prepared_context(store, snapshots)
+        runtime = build_agent_runtime(settings, context=context, memories=memories)
         recent = _recent_events(store)
         manager = build_memory_manager(memories)
 
@@ -1608,6 +1650,7 @@ def _agent_chat(args: argparse.Namespace, settings: Settings) -> int:
                 conversation=conversation,
                 recent_events=recent,
             )
+            _record_decision(turn, context_as_of=context.current().as_of, store=store)
             write = _persist_memory_proposal(turn, manager, provenance=USER_ASSERTION)
             _print_turn(turn, write=write)
             print()
@@ -1630,14 +1673,14 @@ def _agent_react(args: argparse.Namespace, settings: Settings) -> int:
         recorded = store.get(args.event_id)
         if recorded is None:
             raise InvalidEventError(f"evento {args.event_id} não encontrado")
-        runtime = build_agent_runtime(
-            settings, context=_prepared_context(store, snapshots), memories=memories
-        )
+        context = _prepared_context(store, snapshots)
+        runtime = build_agent_runtime(settings, context=context, memories=memories)
         turn = runtime.handle(
             EventTrigger.from_recorded(recorded),
             recent_events=_recent_events(store),
             capabilities=capabilities_from(skills),
         )
+        _record_decision(turn, context_as_of=context.current().as_of, store=store)
         # A afirmação não veio do usuário: veio do evento que disparou o turno.
         # `event_id` é referência resolvível no Event Store — a mesma
         # proveniência que o `MemoryEventConsumer` já grava.
@@ -1885,6 +1928,37 @@ def _action(args: argparse.Namespace, settings: Settings) -> int:
     return _action_answer(args, settings, granted=False)
 
 
+def _print_decision_row(record: DecisionRecord) -> None:
+    print(
+        f"{record.decided_at.isoformat()}  {record.decision_type:<14} "
+        f"llm={'sim' if record.consulted_llm else 'não':<3} "
+        f"correlation={record.correlation_id}  {record.reason}"
+    )
+
+
+def _decisions_list(args: argparse.Namespace, settings: Settings) -> int:
+    with SqliteEventStore.open(event_store_path(settings)) as store:
+        events = (
+            store.read_by_correlation(args.correlation_id)
+            if args.correlation_id
+            else store.read_by_type(DECISION_RECORDED, limit=args.limit)
+        )
+    records = project_decisions(events)
+    if not records:
+        print("nenhuma decisão encontrada")
+        return EXIT_OK
+    for record in records:
+        _print_decision_row(record)
+    return EXIT_OK
+
+
+def _decisions(args: argparse.Namespace, settings: Settings) -> int:
+    if args.decisions_command is None:
+        args.decisions_parser.print_help()
+        return EXIT_OK
+    return _decisions_list(args, settings)
+
+
 def _voice_devices() -> int:
     from jarvis.voice.adapters.sounddevice_audio import list_devices
 
@@ -2091,6 +2165,7 @@ def _serve_voice(
     agent = RuntimeConversationalAgent(
         settings,
         runtime=build_agent_runtime(settings, context=context, memories=memories),
+        context=context,
         memories=memories,
         store=store,
         skills=skills,
@@ -2182,6 +2257,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _tools(args, settings)
         if args.command == "action":
             return _action(args, settings)
+        if args.command == "decisions":
+            return _decisions(args, settings)
         if args.command == "voice":
             return _voice(args, settings)
         if args.command == "panel":

@@ -1190,13 +1190,13 @@ feat: implement notification manager
 
 ## 7.4 — Decision Logging
 
-- [ ] Registrar decisões
-- [ ] Registrar contexto utilizado
-- [ ] Registrar memória utilizada
-- [ ] Registrar razão
-- [ ] Registrar ações
-- [ ] Permitir consulta posterior
-- [ ] Criar testes
+- [x] Registrar decisões — `agent.decision_recorded`, publicado pelo composition root após cada turno (`agent ask`/`chat`/`react`, voz)
+- [x] Registrar contexto utilizado — `context_as_of` (o `as_of` da projeção lida naquele turno); não o contexto inteiro, ver ADR-0026
+- [x] Registrar memória utilizada — `used_memory_ids` (identidade, nunca conteúdo)
+- [x] Registrar razão — `reason`/`message`
+- [x] Registrar ações — via `correlation_id` compartilhado com a auditoria da Fase 5, sem duplicar a trilha
+- [x] Permitir consulta posterior — `jarvis decisions list [--correlation-id]`; painel (`DecisionCard`) passa a ler histórico persistido, não só o turno em curso
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -1894,7 +1894,7 @@ TTS
 | 2026-08-17 | 7.1 | ✅ | `feat: implement event trigger engine` |
 | 2026-08-17 | 7.2 | ✅ | `feat: implement interruption policy` |
 | 2026-08-17 | 7.3 | ✅ | `feat: implement notification manager` |
-| — | 7.4 | ⬜ | — |
+| 2026-08-17 | 7.4 | ✅ | `feat: implement agent decision logging` |
 | — | 7.5 | ⬜ | — |
 | — | 7.6 | ⬜ | — |
 | — | 7.7 | ⬜ | — |
