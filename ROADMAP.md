@@ -1137,11 +1137,11 @@ feat: serve voice and panel from one process
 
 ## 7.1 — Trigger Engine
 
-- [ ] Criar trigger engine
-- [ ] Integrar eventos
-- [ ] Definir condições
-- [ ] Definir triggers
-- [ ] Criar testes
+- [x] Criar trigger engine
+- [x] Integrar eventos
+- [x] Definir condições
+- [x] Definir triggers
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -1891,7 +1891,7 @@ TTS
 | 2026-08-14 | 6.6 | ✅ | `feat: complete conversational voice interface` |
 | 2026-08-14 | 6.7 | ✅ | `feat: implement observability panel` (subfase acrescentada — ver 6.7) |
 | 2026-08-14 | 6.8 | ✅ | `feat: serve voice and panel from one process` (subfase acrescentada — ver 6.8) |
-| — | 7.1 | ⬜ | — |
+| 2026-08-17 | 7.1 | ✅ | `feat: implement event trigger engine` |
 | — | 7.2 | ⬜ | — |
 | — | 7.3 | ⬜ | — |
 | — | 7.4 | ⬜ | — |
