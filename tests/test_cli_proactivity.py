@@ -52,7 +52,7 @@ def _build(settings: Settings, *, tmp_path: Path) -> ProactivityRuntime:
         SqliteContextSnapshotRepository.open(tmp_path / "context.db") as snapshots,
         SqliteMemoryRepository.open(tmp_path / "memory.db") as memories,
     ):
-        context = build_context_engine(snapshots)
+        context = build_context_engine(settings, snapshots)
         return _build_proactivity(
             settings,
             store=store,

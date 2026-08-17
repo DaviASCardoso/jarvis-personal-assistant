@@ -11,6 +11,11 @@ dependencies = [
     # alheio é como uma atualização de terceiros quebra o build sem aviso.
     "pydantic>=2.9",
     "pydantic-settings>=2.7",
+    # CPU/RAM/processos não têm equivalente na stdlib multiplataforma
+    # (ADR-0030). Ao contrário de `sounddevice` (extra `voice`), não exige
+    # hardware nem driver — roda igual em CI headless — por isso é
+    # dependência normal, não opcional.
+    "psutil>=6.1",
 ]
 
 # Áudio é a primeira necessidade que a biblioteca padrão não atende de forma
@@ -68,6 +73,12 @@ strict = true
 # type check dependeria de o ambiente ter áudio, o que o CI não tem.
 [[tool.mypy.overrides]]
 module = ["sounddevice.*"]
+ignore_missing_imports = true
+
+# `psutil` não traz `py.typed`; `types-psutil` seria mais uma dependência de
+# dev para uma lib cujo uso aqui é só leitura de CPU/RAM/processos (Fase 8.1).
+[[tool.mypy.overrides]]
+module = ["psutil.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

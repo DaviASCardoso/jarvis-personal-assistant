@@ -1288,15 +1288,15 @@ feat: enable proactive agent behavior
 
 ## 8.1 — Computer Context
 
-- [ ] Detectar aplicação ativa
-- [ ] Detectar janela ativa
-- [ ] Detectar CPU
-- [ ] Detectar RAM
-- [ ] Detectar GPU
-- [ ] Detectar rede
-- [ ] Detectar tempo de inatividade
-- [ ] Detectar processos relevantes
-- [ ] Integrar ao Context Engine
+- [x] Detectar aplicação ativa
+- [x] Detectar janela ativa
+- [x] Detectar CPU
+- [x] Detectar RAM
+- [x] Detectar GPU (melhor esforço via `Get-Counter`; ausência é campo ausente, nunca inventado)
+- [x] Detectar rede
+- [x] Detectar tempo de inatividade
+- [x] Detectar processos relevantes
+- [x] Integrar ao Context Engine
 
 **Commit esperado:**
 
@@ -1908,7 +1908,7 @@ TTS
 | 2026-08-17 | 7.5 | ✅ | `feat: implement background task manager` |
 | 2026-08-17 | 7.6 | ✅ | `feat: implement conditional triggers` (integração de memória fora de escopo — ver 7.6) |
 | 2026-08-17 | 7.7 | ✅ | `feat: enable proactive agent behavior` |
-| — | 8.1 | ⬜ | — |
+| 2026-08-17 | 8.1 | ✅ | `feat: implement computer context providers` |
 | — | 8.2 | ⬜ | — |
 | — | 8.3 | ⬜ | — |
 | — | 8.4 | ⬜ | — |

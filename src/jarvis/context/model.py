@@ -40,6 +40,15 @@ class ContextField(StrEnum):
     NEXT_ENTRY_AT = "next_entry_at"
     CONVERSATION = "conversation"
     TASK = "task"
+    # Fase 8.1: observação do computador — ver `context/adapters/*_provider.py`.
+    ACTIVE_APPLICATION = "active_application"
+    ACTIVE_WINDOW_TITLE = "active_window_title"
+    CPU_PERCENT = "cpu_percent"
+    MEMORY_PERCENT = "memory_percent"
+    GPU_PERCENT = "gpu_percent"
+    NETWORK_CONNECTED = "network_connected"
+    IDLE_SECONDS = "idle_seconds"
+    RELEVANT_PROCESS_COUNT = "relevant_process_count"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -87,6 +96,27 @@ class TaskContext:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ComputerContext:
+    """Fase 8.1: o que os Computer Context Providers observam.
+
+    Oito campos, três providers (`WindowActivityProvider`,
+    `ResourceUsageProvider`, `ProcessActivityProvider`) — ver
+    `context/adapters/`. Nenhum é inventado quando indisponível: GPU e tempo
+    de ociosidade fora do Windows ficam simplesmente ausentes, mesma
+    disciplina que a Fase 2 já aplicou a Location.
+    """
+
+    active_application: Observation[str] | None = None
+    active_window_title: Observation[str] | None = None
+    cpu_percent: Observation[float] | None = None
+    memory_percent: Observation[float] | None = None
+    gpu_percent: Observation[float] | None = None
+    network_connected: Observation[bool] | None = None
+    idle_seconds: Observation[float] | None = None
+    relevant_process_count: Observation[int] | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class CurrentContext:
     """O que o sistema sabe agora, com `as_of` sendo o instante da leitura."""
 
@@ -98,6 +128,7 @@ class CurrentContext:
     schedule: ScheduleContext = ScheduleContext()
     conversation: ConversationContext = ConversationContext()
     task: TaskContext = TaskContext()
+    computer: ComputerContext = ComputerContext()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -117,6 +148,14 @@ class ContextUpdate:
     next_entry_at: Observation[datetime] | None = None
     conversation: Observation[str | None] | None = None
     task: Observation[str] | None = None
+    active_application: Observation[str] | None = None
+    active_window_title: Observation[str] | None = None
+    cpu_percent: Observation[float] | None = None
+    memory_percent: Observation[float] | None = None
+    gpu_percent: Observation[float] | None = None
+    network_connected: Observation[bool] | None = None
+    idle_seconds: Observation[float] | None = None
+    relevant_process_count: Observation[int] | None = None
 
     def is_empty(self) -> bool:
         return not any(
@@ -129,6 +168,14 @@ class ContextUpdate:
                 self.next_entry_at,
                 self.conversation,
                 self.task,
+                self.active_application,
+                self.active_window_title,
+                self.cpu_percent,
+                self.memory_percent,
+                self.gpu_percent,
+                self.network_connected,
+                self.idle_seconds,
+                self.relevant_process_count,
             )
         )
 
@@ -149,3 +196,11 @@ def iter_fields(
     yield ContextField.NEXT_ENTRY_AT, context.schedule.next_entry_at
     yield ContextField.CONVERSATION, context.conversation.active_id
     yield ContextField.TASK, context.task.active_id
+    yield ContextField.ACTIVE_APPLICATION, context.computer.active_application
+    yield ContextField.ACTIVE_WINDOW_TITLE, context.computer.active_window_title
+    yield ContextField.CPU_PERCENT, context.computer.cpu_percent
+    yield ContextField.MEMORY_PERCENT, context.computer.memory_percent
+    yield ContextField.GPU_PERCENT, context.computer.gpu_percent
+    yield ContextField.NETWORK_CONNECTED, context.computer.network_connected
+    yield ContextField.IDLE_SECONDS, context.computer.idle_seconds
+    yield ContextField.RELEVANT_PROCESS_COUNT, context.computer.relevant_process_count

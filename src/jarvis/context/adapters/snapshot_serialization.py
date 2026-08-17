@@ -19,6 +19,7 @@ from typing import Final, TypedDict
 from jarvis.context.errors import ContextSnapshotReadError
 from jarvis.context.model import (
     ActivityContext,
+    ComputerContext,
     ContextField,
     ConversationContext,
     CurrentContext,
@@ -83,11 +84,50 @@ def _decode_moment(raw: object, *, field: ContextField) -> datetime:
     return parse_timestamp(raw, field_name=f"{field.value}.value")
 
 
+def _encode_number(value: object) -> float:
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        raise ContextSnapshotReadError(f"{value!r} não é numérico")
+    return float(value)
+
+
+def _decode_number(raw: object, *, field: ContextField) -> float:
+    if not isinstance(raw, int | float) or isinstance(raw, bool):
+        raise ContextSnapshotReadError(f"{field.value}.value deveria ser numérico")
+    return float(raw)
+
+
+def _encode_int(value: object) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ContextSnapshotReadError(f"{value!r} não é inteiro")
+    return value
+
+
+def _decode_int(raw: object, *, field: ContextField) -> int:
+    if not isinstance(raw, int) or isinstance(raw, bool):
+        raise ContextSnapshotReadError(f"{field.value}.value deveria ser inteiro")
+    return raw
+
+
+def _encode_bool(value: object) -> bool:
+    if not isinstance(value, bool):
+        raise ContextSnapshotReadError(f"{value!r} não é booleano")
+    return value
+
+
+def _decode_bool(raw: object, *, field: ContextField) -> bool:
+    if not isinstance(raw, bool):
+        raise ContextSnapshotReadError(f"{field.value}.value deveria ser booleano")
+    return raw
+
+
 # Um par (encode, decode) por campo — a lista completa de formatos, num lugar só.
 _TEXT_CODEC: Final = (_encode_text, _decode_text)
 _MOMENT_CODEC: Final = (_encode_moment, _decode_moment)
+_NUMBER_CODEC: Final = (_encode_number, _decode_number)
+_INT_CODEC: Final = (_encode_int, _decode_int)
+_BOOL_CODEC: Final = (_encode_bool, _decode_bool)
 
-_CODECS: Final[Mapping[ContextField, tuple[Callable[[object], str], Callable[..., object]]]] = {
+_CODECS: Final[Mapping[ContextField, tuple[Callable[[object], object], Callable[..., object]]]] = {
     ContextField.AVAILABILITY: _TEXT_CODEC,
     ContextField.UTC_OFFSET: _TEXT_CODEC,
     ContextField.PLACE: _TEXT_CODEC,
@@ -96,6 +136,14 @@ _CODECS: Final[Mapping[ContextField, tuple[Callable[[object], str], Callable[...
     ContextField.NEXT_ENTRY_AT: _MOMENT_CODEC,
     ContextField.CONVERSATION: _TEXT_CODEC,
     ContextField.TASK: _TEXT_CODEC,
+    ContextField.ACTIVE_APPLICATION: _TEXT_CODEC,
+    ContextField.ACTIVE_WINDOW_TITLE: _TEXT_CODEC,
+    ContextField.CPU_PERCENT: _NUMBER_CODEC,
+    ContextField.MEMORY_PERCENT: _NUMBER_CODEC,
+    ContextField.GPU_PERCENT: _NUMBER_CODEC,
+    ContextField.NETWORK_CONNECTED: _BOOL_CODEC,
+    ContextField.IDLE_SECONDS: _NUMBER_CODEC,
+    ContextField.RELEVANT_PROCESS_COUNT: _INT_CODEC,
 }
 
 
@@ -192,6 +240,16 @@ def decode_context(raw: object) -> CurrentContext:
             active_id=_as_optional_text(found.get(ContextField.CONVERSATION))
         ),
         task=TaskContext(active_id=_as_text(found.get(ContextField.TASK))),
+        computer=ComputerContext(
+            active_application=_as_text(found.get(ContextField.ACTIVE_APPLICATION)),
+            active_window_title=_as_text(found.get(ContextField.ACTIVE_WINDOW_TITLE)),
+            cpu_percent=_as_number(found.get(ContextField.CPU_PERCENT)),
+            memory_percent=_as_number(found.get(ContextField.MEMORY_PERCENT)),
+            gpu_percent=_as_number(found.get(ContextField.GPU_PERCENT)),
+            network_connected=_as_bool(found.get(ContextField.NETWORK_CONNECTED)),
+            idle_seconds=_as_number(found.get(ContextField.IDLE_SECONDS)),
+            relevant_process_count=_as_int(found.get(ContextField.RELEVANT_PROCESS_COUNT)),
+        ),
     )
 
 
@@ -231,6 +289,51 @@ def _as_moment(observation: Observation[object] | None) -> Observation[datetime]
     value = observation.value
     if not isinstance(value, datetime):
         raise ContextSnapshotReadError("valor de campo temporal não pode ser nulo")
+    return Observation(
+        value=value,
+        observed_at=observation.observed_at,
+        source=observation.source,
+        confidence=observation.confidence,
+        ttl=observation.ttl,
+    )
+
+
+def _as_number(observation: Observation[object] | None) -> Observation[float] | None:
+    if observation is None:
+        return None
+    value = observation.value
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        raise ContextSnapshotReadError("valor de campo numérico não pode ser nulo")
+    return Observation(
+        value=float(value),
+        observed_at=observation.observed_at,
+        source=observation.source,
+        confidence=observation.confidence,
+        ttl=observation.ttl,
+    )
+
+
+def _as_int(observation: Observation[object] | None) -> Observation[int] | None:
+    if observation is None:
+        return None
+    value = observation.value
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ContextSnapshotReadError("valor de campo inteiro não pode ser nulo")
+    return Observation(
+        value=value,
+        observed_at=observation.observed_at,
+        source=observation.source,
+        confidence=observation.confidence,
+        ttl=observation.ttl,
+    )
+
+
+def _as_bool(observation: Observation[object] | None) -> Observation[bool] | None:
+    if observation is None:
+        return None
+    value = observation.value
+    if not isinstance(value, bool):
+        raise ContextSnapshotReadError("valor de campo booleano não pode ser nulo")
     return Observation(
         value=value,
         observed_at=observation.observed_at,

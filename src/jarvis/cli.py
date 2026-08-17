@@ -55,8 +55,11 @@ from jarvis.context import (
     iter_fields,
 )
 from jarvis.context.adapters.device_provider import LocalDeviceProvider
+from jarvis.context.adapters.process_activity_provider import ProcessActivityProvider
+from jarvis.context.adapters.resource_usage_provider import ResourceUsageProvider
 from jarvis.context.adapters.sqlite_snapshots import SqliteContextSnapshotRepository
 from jarvis.context.adapters.time_provider import SystemTimeProvider
+from jarvis.context.adapters.window_activity_provider import WindowActivityProvider
 from jarvis.context.consumer import CONTEXT_EVENT_TYPES
 from jarvis.decisions import (
     DECISION_RECORDED,
@@ -266,14 +269,28 @@ def context_store_path(settings: Settings) -> Path:
     return settings.data_dir / "context.db"
 
 
-def build_context_engine(snapshots: SqliteContextSnapshotRepository) -> ContextEngine:
+def build_context_engine(
+    settings: Settings, snapshots: SqliteContextSnapshotRepository
+) -> ContextEngine:
     """Monta o Context Engine com os providers que têm dado local de verdade.
 
     Activity, Calendar e Location não entram: exigiriam integração externa que
     esta fase não implementa, e um provider de valor declarado aqui pareceria
-    funcionalidade pronta sem ser.
+    funcionalidade pronta sem ser. Os três providers de computador (Fase 8.1)
+    entram sempre — cada um degrada para ausência sozinho quando o sistema
+    operacional não oferece o dado (ver `context/adapters/*_provider.py`).
     """
-    aggregator = ContextAggregator(providers=[SystemTimeProvider(), LocalDeviceProvider()])
+    aggregator = ContextAggregator(
+        providers=[
+            SystemTimeProvider(),
+            LocalDeviceProvider(),
+            WindowActivityProvider(),
+            ResourceUsageProvider(),
+            ProcessActivityProvider(
+                relevant_process_names=frozenset(_parse_list(settings.computer_relevant_processes))
+            ),
+        ]
+    )
     return ContextEngine(aggregator=aggregator, snapshots=snapshots)
 
 
@@ -1214,7 +1231,9 @@ def _emit(args: argparse.Namespace, settings: Settings) -> int:
         # Filtro explícito: cada consumer só recebe o que sabe projetar. Sem
         # retry — payload malformado é falha permanente, e o bus manda para
         # dead-letter sem desfazer o evento já gravado.
-        bus.subscribe(build_context_engine(snapshots).consumer, event_types=CONTEXT_EVENT_TYPES)
+        bus.subscribe(
+            build_context_engine(settings, snapshots).consumer, event_types=CONTEXT_EVENT_TYPES
+        )
         bus.subscribe(
             MemoryEventConsumer(build_memory_manager(memories)), event_types=MEMORY_EVENT_TYPES
         )
@@ -1321,7 +1340,7 @@ def _run_context_command(settings: Settings, action: str) -> int:
         SqliteEventStore.open(event_store_path(settings)) as store,
         SqliteContextSnapshotRepository.open(context_store_path(settings)) as snapshots,
     ):
-        engine = build_context_engine(snapshots)
+        engine = build_context_engine(settings, snapshots)
         # A projeção é derivada: um processo novo a reconstrói do Event Store
         # antes de perguntar aos providers.
         engine.rebuild_from(store)
@@ -1441,7 +1460,7 @@ def _memory_search(args: argparse.Namespace, settings: Settings) -> int:
                 SqliteEventStore.open(event_store_path(settings)) as store,
                 SqliteContextSnapshotRepository.open(context_store_path(settings)) as snapshots,
             ):
-                engine = build_context_engine(snapshots)
+                engine = build_context_engine(settings, snapshots)
                 engine.rebuild_from(store)
                 engine.refresh()
                 query = context_to_query(engine.current(), text=args.text, limit=args.limit)
@@ -1601,12 +1620,12 @@ def _persist_memory_proposal(
 
 
 def _prepared_context(
-    store: SqliteEventStore, snapshots: SqliteContextSnapshotRepository
+    settings: Settings, store: SqliteEventStore, snapshots: SqliteContextSnapshotRepository
 ) -> ContextEngine:
     """A projeção é derivada: um processo novo a reconstrói antes de raciocinar
     sobre ela. Quem reconstrói é o composition root — o Agent Runtime recebe
     contexto pronto e nunca conhece o Event Store (contracts §3.4)."""
-    engine = build_context_engine(snapshots)
+    engine = build_context_engine(settings, snapshots)
     engine.rebuild_from(store)
     engine.refresh()
     return engine
@@ -1732,7 +1751,7 @@ def _agent_ask(args: argparse.Namespace, settings: Settings) -> int:
         SqliteContextSnapshotRepository.open(context_store_path(settings)) as snapshots,
         SqliteMemoryRepository.open(memory_store_path(settings)) as memories,
     ):
-        context = _prepared_context(store, snapshots)
+        context = _prepared_context(settings, store, snapshots)
         runtime = build_agent_runtime(settings, context=context, memories=memories)
         recent = _recent_events(store)
         turn = runtime.handle(
@@ -1772,7 +1791,7 @@ def _agent_chat(args: argparse.Namespace, settings: Settings) -> int:
         SqliteContextSnapshotRepository.open(context_store_path(settings)) as snapshots,
         SqliteMemoryRepository.open(memory_store_path(settings)) as memories,
     ):
-        context = _prepared_context(store, snapshots)
+        context = _prepared_context(settings, store, snapshots)
         runtime = build_agent_runtime(settings, context=context, memories=memories)
         recent = _recent_events(store)
         manager = build_memory_manager(memories)
@@ -1810,7 +1829,7 @@ def _agent_react(args: argparse.Namespace, settings: Settings) -> int:
         recorded = store.get(args.event_id)
         if recorded is None:
             raise InvalidEventError(f"evento {args.event_id} não encontrado")
-        context = _prepared_context(store, snapshots)
+        context = _prepared_context(settings, store, snapshots)
         runtime = build_agent_runtime(settings, context=context, memories=memories)
         turn = runtime.handle(
             EventTrigger.from_recorded(recorded),
@@ -2504,7 +2523,7 @@ def _run_resident(args: argparse.Namespace, settings: Settings) -> int:
         SqliteTaskRepository.open(task_store_path(settings)) as tasks,
     ):
         _apply_retention(settings, sessions)
-        context = _prepared_context(store, snapshots)
+        context = _prepared_context(settings, store, snapshots)
         proactivity = _build_proactivity(
             settings,
             store=store,

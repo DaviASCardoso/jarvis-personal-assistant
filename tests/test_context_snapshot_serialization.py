@@ -13,6 +13,7 @@ from jarvis.context.adapters.snapshot_serialization import (
 from jarvis.context.errors import ContextSnapshotReadError
 from jarvis.context.model import (
     ActivityContext,
+    ComputerContext,
     ContextField,
     ConversationContext,
     CurrentContext,
@@ -53,6 +54,16 @@ def fully_populated() -> CurrentContext:
         schedule=ScheduleContext(next_entry_at=make_observation(NOON + timedelta(hours=2))),
         conversation=ConversationContext(active_id=make_observation("conv-1")),
         task=TaskContext(active_id=make_observation("task-1")),
+        computer=ComputerContext(
+            active_application=make_observation("notepad.exe"),
+            active_window_title=make_observation("untitled - Notepad"),
+            cpu_percent=make_observation(12.5),
+            memory_percent=make_observation(48.0),
+            gpu_percent=make_observation(3.0),
+            network_connected=make_observation(True),
+            idle_seconds=make_observation(2.5),
+            relevant_process_count=make_observation(1),
+        ),
     )
 
 

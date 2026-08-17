@@ -155,6 +155,15 @@ class Settings(BaseSettings):
     tasks_max_attempts: int = 3
     tasks_retry_base_delay_seconds: float = 30.0
 
+    # --- Fase 8: computador ------------------------------------------------
+    # Vazio = nenhum processo é "relevante" (ausência, não zero — ver
+    # `ProcessActivityProvider`). Lista separada por vírgula, sem
+    # distinção de maiúsculas/minúsculas.
+    computer_relevant_processes: str = ""
+    # Nome→argv de comandos que `computer.run_command` pode executar. Nunca
+    # texto de shell livre — ver ADR-0031.
+    computer_command_allowlist_path: Path | None = None
+
 
 def load_settings() -> Settings:
     """Carrega a configuração atual."""

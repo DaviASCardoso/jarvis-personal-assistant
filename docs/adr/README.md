@@ -89,3 +89,8 @@ original fazia sentido no momento em que foi tomada.
 | [0023](0023-single-resident-process.md) | `jarvis run`: um processo residente para voz e painel | Accepted |
 | [0024](0024-observability-panel-as-snapshot-reader.md) | Painel de observabilidade como leitor de snapshot, somente leitura | Accepted |
 | [0025](0025-voice-transcripts-as-operational-state.md) | Transcrição de voz como estado operacional, nunca como evento | Accepted |
+| [0026](0026-decision-log-as-events-built-from-primitives.md) | Decision Log como projeção de eventos já existentes | Accepted |
+| [0027](0027-background-tasks-ticked-not-scheduled.md) | Tarefas de fundo avançadas por tick, sem scheduler próprio | Accepted |
+| [0028](0028-console-channel-for-desktop-notifications.md) | Canal de console como primeiro canal de notificação | Accepted |
+| [0029](0029-proactivity-opt-in-layers.md) | Autonomia real em três interruptores independentes; automação condicional sem LLM | Accepted |
+| [0030](0030-psutil-as-a-normal-dependency.md) | `psutil` como dependência normal, não extra opcional | Accepted |

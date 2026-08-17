@@ -50,6 +50,18 @@ DEFAULT_TTL_POLICY: Final = TtlPolicy(
             ContextField.CONVERSATION: timedelta(minutes=30),
             # Uma tarefa aberta atravessa o dia.
             ContextField.TASK: timedelta(hours=12),
+            # Fase 8.1: aplicação/janela mudam em minutos, não em horas.
+            ContextField.ACTIVE_APPLICATION: timedelta(minutes=2),
+            ContextField.ACTIVE_WINDOW_TITLE: timedelta(minutes=2),
+            # Instantâneos de recurso — vencem rápido de propósito, para que
+            # um valor de trinta segundos atrás nunca seja lido como "agora".
+            ContextField.CPU_PERCENT: timedelta(seconds=30),
+            ContextField.MEMORY_PERCENT: timedelta(seconds=30),
+            ContextField.GPU_PERCENT: timedelta(seconds=30),
+            ContextField.IDLE_SECONDS: timedelta(seconds=30),
+            # Conectividade muda com bem menos frequência que uso de recurso.
+            ContextField.NETWORK_CONNECTED: timedelta(minutes=5),
+            ContextField.RELEVANT_PROCESS_COUNT: timedelta(minutes=2),
         }
     )
 )
