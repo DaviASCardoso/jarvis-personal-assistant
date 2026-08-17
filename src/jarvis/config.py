@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     # opt-in por natureza (`jarvis agent pursue`), mas mesmo assim precisa de
     # um limite duro contra insistência indefinida.
     agent_pursue_max_steps: int = 6
+    # Fase 10.3: uma chamada a mais só no fechamento da sessão inteira (não
+    # por turno) — ligada por padrão porque o custo é baixo frente ao ganho
+    # de memória mais completa.
+    agent_session_reflection_enabled: bool = True
 
     # --- Fase 5: política, execução e tools -------------------------------
     # Listas chegam como texto separado por vírgula e são convertidas pelo

@@ -1822,6 +1822,45 @@ def _explain_outcome(
         print(f"agente      {follow_up.decision.message}")
 
 
+_SESSION_REFLECTION_PROMPT: Final = (
+    "A conversa está encerrando. Considerando tudo que foi dito, há algum fato ou "
+    "preferência que vale registrar como memória? Se não houver nada além do que já "
+    "foi tratado turno a turno, decida ignore."
+)
+
+
+def _reflect_on_session(
+    runtime: AgentRuntime,
+    *,
+    conversation: Conversation,
+    conversation_id: str,
+    memory_manager: MemoryManager,
+    store: SqliteEventStore,
+    context: ContextEngine,
+) -> None:
+    """Fase 10.3: ao encerrar uma sessão (EOF de `agent chat`, fim de uma
+    sessão de voz), um turno a mais pergunta ao histórico inteiro o que vale
+    consolidar — em vez de depender só do que cada turno individual propôs
+    no calor da hora. Reaproveita `_persist_memory_proposal`, o mesmo
+    mecanismo turno a turno; nenhuma persistência nova.
+
+    Sem conversa, não há o que refletir — chamar o LLM à toa não é grátis.
+    """
+    if not conversation.turns:
+        return
+    turn = runtime.handle(
+        UserMessage(
+            text=_SESSION_REFLECTION_PROMPT, at=datetime.now(UTC), conversation_id=conversation_id
+        ),
+        conversation=conversation,
+    )
+    _record_decision(turn, context_as_of=context.current().as_of, store=store)
+    write = _persist_memory_proposal(turn, memory_manager, provenance=USER_ASSERTION)
+    if write.stored is not None:
+        verb = "reforçada" if write.stored.reinforced_count else "gravada"
+        print(f"sessão      memória {verb} como {write.stored.memory.memory_id}")
+
+
 def _run_agent_loop(
     settings: Settings,
     *,
@@ -1996,6 +2035,16 @@ def _agent_chat(args: argparse.Namespace, settings: Settings) -> int:
                 conversation = conversation.append(
                     ConversationTurn(role=Role.ASSISTANT, text=reply, at=now)
                 )
+
+        if settings.agent_session_reflection_enabled:
+            _reflect_on_session(
+                runtime,
+                conversation=conversation,
+                conversation_id=conversation.conversation_id,
+                memory_manager=manager,
+                store=store,
+                context=context,
+            )
     return EXIT_OK
 
 
@@ -3005,16 +3054,29 @@ def _serve_voice(
         voice_state[0] = status.state
         bridge.on_status(status)
 
+    voice_runtime = build_agent_runtime(settings, context=context, memories=memories)
+    voice_memory_manager = build_memory_manager(memories)
+
     def on_session(session: VoiceSession, started: bool) -> None:
         # O fato vira evento aqui, no root: identidade e contagem, nunca conteúdo.
         publisher.publish(voice_session_event(session, started=started))
         # O evento acabou de mudar a projeção de conversa; o painel precisa vê-la.
         context.rebuild_from(store)
         bridge.on_session(session, started)
+        # Fase 10.3: só ao encerrar (`started=False`), nunca ao abrir.
+        if not started and settings.agent_session_reflection_enabled:
+            _reflect_on_session(
+                voice_runtime,
+                conversation=_conversation_of(session),
+                conversation_id=session.session_id,
+                memory_manager=voice_memory_manager,
+                store=store,
+                context=context,
+            )
 
     agent = RuntimeConversationalAgent(
         settings,
-        runtime=build_agent_runtime(settings, context=context, memories=memories),
+        runtime=voice_runtime,
         context=context,
         memories=memories,
         store=store,

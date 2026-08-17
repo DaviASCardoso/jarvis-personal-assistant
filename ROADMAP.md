@@ -1710,12 +1710,15 @@ feat: allow multiple actions per user request in ask and chat
 
 ## 10.3 — Reflexão de Fim de Sessão
 
-- [ ] `_reflect_on_session` — turno extra de `runtime.handle` com a
-      `Conversation` completa, reaproveitando `_persist_memory_proposal`
-- [ ] `agent_session_reflection_enabled: bool = True` em `config.py`
-- [ ] Hook em `_agent_chat` (EOF do stdin) e em `_serve_voice`
-      (`on_session(..., started=False)`)
-- [ ] Testes
+- [x] `_reflect_on_session` — turno extra de `runtime.handle` com a
+      `Conversation` completa, reaproveitando `_persist_memory_proposal`;
+      sem turnos, nem chama o LLM
+- [x] `agent_session_reflection_enabled: bool = True` em `config.py`
+- [x] Hook em `_agent_chat` (EOF do stdin) e em `_serve_voice`
+      (`on_session(..., started=False)`, via `_conversation_of` já existente)
+- [x] Testes (`tests/test_cli_session_reflection.py`: helper isolado,
+      composição com `_conversation_of`, conversa vazia não chama o LLM,
+      ponta a ponta via `agent chat` com o toggle ligado/desligado)
 
 **Commit esperado:**
 

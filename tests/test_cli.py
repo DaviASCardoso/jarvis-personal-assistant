@@ -769,8 +769,9 @@ class TestAgent:
         out = capsys.readouterr().out
         assert "primeira" in out
         assert "segunda" in out
-        # A linha em branco não vira turno.
-        assert provider.calls == 2
+        # A linha em branco não vira turno. A terceira chamada é a reflexão
+        # de fim de sessão (Fase 10.3, ligada por padrão).
+        assert provider.calls == 3
         second = json.loads(provider.requests[1].messages[0].content)
         assert [turn["text"] for turn in second["conversation"]] == ["oi", "primeira"]
 
