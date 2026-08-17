@@ -152,11 +152,15 @@ observabilidade local — este **somente leitura**, sem nenhuma rota que inicie
 ação. `jarvis.voice` importa de `jarvis` apenas `jarvis.errors`; o resto do
 sistema chega por um port próprio implementado no composition root.
 
-**Não** há Notification System nem Trigger Engine — esses seguem sem código.
-Consequência direta: o Agent Runtime **propõe e para**; `Decision.act` só vira
-execução via `--execute` (ou `JARVIS_VOICE_EXECUTE_ACTIONS`), e `notify`/`ask`
-não entregam nada fora do terminal e do painel — o toast do painel é renderização
-de evento existente, não um Notification System (esse é a 7.3).
+**Nota histórica (válida no fim da Fase 6, hoje desatualizada):** nesta altura
+do projeto, Notification System e Trigger Engine ainda não existiam. Ambos
+foram implementados na Fase 7 (subfases 7.1 e 7.3) e o restante desta seção
+(§2) segue sem atualização retroativa desde então — ver `ROADMAP.md` para o
+estado real pós-Fase-7/8. À época, a consequência direta era: o Agent Runtime
+**propõe e para**; `Decision.act` só virava execução via `--execute` (ou
+`JARVIS_VOICE_EXECUTE_ACTIONS`), e `notify`/`ask` não entregavam nada fora do
+terminal e do painel — o toast do painel era renderização de evento existente,
+não um Notification System.
 `cli.py` é o composition root: único módulo que conhece Core,
 Infrastructure e Interfaces ao mesmo tempo, único que lê a credencial do LLM, e
 também quem aplica `Decision.memory` ao Memory System

@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     # provider indisponível gasta o que resta dela sem melhorar a resposta.
     llm_max_attempts: int = 2
     agent_importance_threshold: float = 0.45
+    # Fase 9.2: teto do Goal Pursuit Loop — autonomia multi-passo continua
+    # opt-in por natureza (`jarvis agent pursue`), mas mesmo assim precisa de
+    # um limite duro contra insistência indefinida.
+    agent_pursue_max_steps: int = 6
 
     # --- Fase 5: política, execução e tools -------------------------------
     # Listas chegam como texto separado por vírgula e são convertidas pelo
@@ -117,7 +121,7 @@ class Settings(BaseSettings):
 
     vad_rms_threshold: float = 0.02
     vad_min_speech_ms: int = 300
-    vad_silence_ms: int = 800
+    vad_silence_ms: int = 1200
     vad_max_utterance_seconds: float = 20.0
 
     voice_follow_up_seconds: float = 12.0

@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from jarvis import cli
 from jarvis.cli import (
     ProactivityRuntime,
     _build_proactivity,
@@ -21,16 +22,20 @@ from jarvis.cli import (
     build_task_manager,
     build_trigger_engine,
     main,
+    task_store_path,
 )
 from jarvis.config import Settings
 from jarvis.context.adapters.sqlite_snapshots import SqliteContextSnapshotRepository
 from jarvis.context.model import CurrentContext
 from jarvis.events.adapters.sqlite_store import SqliteEventStore
 from jarvis.execution.adapters.sqlite_actions import SqliteActionRepository
+from jarvis.execution.model import ActionRequest
 from jarvis.memory.adapters.sqlite_repository import SqliteMemoryRepository
 from jarvis.notify.notification import Notification, NotificationPriority
 from jarvis.skills.registry import SkillRegistry
 from jarvis.tasks.adapters.sqlite_tasks import SqliteTaskRepository
+from jarvis.tasks.manager import TaskManager
+from tests.agent_doubles import StubLLMProvider, decision_json
 
 NOW = datetime(2026, 8, 17, 12, 0, tzinfo=UTC)
 
@@ -84,6 +89,53 @@ class TestTasksCommand:
     def test_without_a_subcommand_prints_help(self, capsys: pytest.CaptureFixture[str]) -> None:
         assert main(["tasks"]) == 0
         assert "usage: jarvis tasks" in capsys.readouterr().out
+
+
+class TestTasksRunDueClosesTheLoop:
+    """Fase 9.1: o desfecho de uma tarefa liquidada volta a alimentar o
+    Agent Runtime — o mesmo mecanismo que `agent ask --execute` já usa,
+    agora também no caminho assíncrono do Background Task Manager."""
+
+    def test_a_denied_task_produces_a_second_decision(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        settings = Settings()
+        with SqliteTaskRepository.open(task_store_path(settings)) as repository:
+            TaskManager(repository=repository).submit(
+                ActionRequest(skill="not.a.real.skill", correlation_id="corr-task-1")
+            )
+
+        provider = StubLLMProvider([decision_json(type="notify", reason="a tarefa falhou, aviso")])
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+
+        assert main(["tasks", "run-due"]) == 0
+        capsys.readouterr()
+
+        assert main(["decisions", "list", "--correlation-id", "corr-task-1"]) == 0
+        out = capsys.readouterr().out
+        assert "notify" in out
+        assert "a tarefa falhou, aviso" in out
+        assert len(provider.requests) == 1
+
+    def test_a_succeeded_task_does_not_pay_for_a_second_call(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        settings = Settings()
+        with SqliteTaskRepository.open(task_store_path(settings)) as repository:
+            TaskManager(repository=repository).submit(
+                ActionRequest(skill="system.status", correlation_id="corr-task-2")
+            )
+
+        provider = StubLLMProvider([decision_json(type="notify", message="não deveria aparecer")])
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+
+        assert main(["tasks", "run-due"]) == 0
+        capsys.readouterr()
+
+        assert main(["decisions", "list", "--correlation-id", "corr-task-2"]) == 0
+        out = capsys.readouterr().out
+        assert "nenhuma decisão encontrada" in out
+        assert provider.requests == []
 
 
 class TestDecisionsCommand:
@@ -166,6 +218,82 @@ class TestBuildTaskManager:
                 repository=repository,
             )
             assert manager is not None
+
+
+class TestTriggerCallbackClosesTheLoop:
+    """Fase 9.1, caminho proativo: uma ação submetida por `on_match` que não
+    conclui também gera uma segunda decisão, exatamente como o caminho
+    síncrono e o Background Task Manager (`TestTasksRunDueClosesTheLoop`)."""
+
+    def test_a_denied_proactive_action_produces_a_second_decision(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from jarvis.decisions.query import project_decisions
+        from jarvis.events.event import Event, RecordedEvent, new_event_id
+        from jarvis.proactivity.triggers import TriggerRule
+
+        settings = Settings(
+            data_dir=tmp_path,
+            proactivity_enabled=True,
+            proactivity_execute_actions=True,
+            proactivity_trigger_event_types="printer.job_completed",
+            agent_importance_threshold=0.0,
+        )
+        provider = StubLLMProvider(
+            [
+                decision_json(type="act", message=None, action={"skill": "not.a.real.skill"}),
+                decision_json(type="notify", reason="a ação proativa falhou, aviso"),
+            ]
+        )
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+
+        with (
+            SqliteEventStore.open(tmp_path / "events.db") as store,
+            SqliteActionRepository.open(tmp_path / "actions.db") as actions,
+            SqliteTaskRepository.open(tmp_path / "tasks.db") as tasks,
+            SqliteContextSnapshotRepository.open(tmp_path / "context.db") as snapshots,
+            SqliteMemoryRepository.open(tmp_path / "memory.db") as memories,
+        ):
+            context = build_context_engine(settings, snapshots)
+            skills = SkillRegistry()
+            proactivity = _build_proactivity(
+                settings,
+                store=store,
+                actions=actions,
+                tasks=tasks,
+                context=context,
+                memories=memories,
+                skills=skills,
+            )
+            on_match = cli._make_trigger_callback(
+                settings,
+                store=store,
+                context=context,
+                memories=memories,
+                skills=skills,
+                actions=actions,
+                proactivity=proactivity,
+            )
+            event = Event(
+                event_id=new_event_id(),
+                event_type="printer.job_completed",
+                source="test",
+                occurred_at=NOW,
+                payload={},
+            )
+            from jarvis.events.event import RecordedEvent
+
+            recorded = RecordedEvent(event=event, recorded_at=NOW)
+            rule = TriggerRule(trigger_id="t1", event_types=frozenset({event.event_type}))
+            on_match(recorded, rule)
+
+            records = project_decisions(store.read_latest(limit=20))
+
+        assert len(records) == 2
+        assert records[0].decision_type == "act"
+        assert records[1].decision_type == "notify"
+        assert records[1].reason == "a ação proativa falhou, aviso"
+        assert len(provider.requests) == 2
 
 
 class TestBuildProactivity:

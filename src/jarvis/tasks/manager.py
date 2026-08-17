@@ -89,19 +89,41 @@ class TaskManager:
         return self._repository.list_by_status(status, limit=limit)
 
     def run_due(
-        self, *, executor: ActionSubmitter, moment: datetime | None = None
+        self,
+        *,
+        executor: ActionSubmitter,
+        moment: datetime | None = None,
+        on_outcome: Callable[[BackgroundTask, ExecutionOutcome], None] | None = None,
     ) -> Sequence[BackgroundTask]:
-        """Executa toda tarefa devida agora. Devolve as que mudaram de estado."""
+        """Executa toda tarefa devida agora. Devolve as que mudaram de estado.
+
+        `on_outcome`, se dado, é chamado uma vez por tarefa que chegar a um
+        estado **terminal** (`succeeded`/`failed`) — nunca para uma tentativa
+        que só agendou retry, para não gastar uma reflexão do agente por
+        tentativa transitória. É o fechamento do loop `observe result` (Fase
+        9.1): quem decide o que fazer com o resultado é o composition root,
+        `TaskManager` só entrega o par tarefa liquidada + desfecho bruto.
+        """
         now = moment if moment is not None else self._clock()
         due = self._repository.due(moment=now)
-        return tuple(self._run_one(task, executor=executor, now=now) for task in due)
+        return tuple(
+            self._run_one(task, executor=executor, now=now, on_outcome=on_outcome) for task in due
+        )
 
     def _run_one(
-        self, task: BackgroundTask, *, executor: ActionSubmitter, now: datetime
+        self,
+        task: BackgroundTask,
+        *,
+        executor: ActionSubmitter,
+        now: datetime,
+        on_outcome: Callable[[BackgroundTask, ExecutionOutcome], None] | None = None,
     ) -> BackgroundTask:
         self._repository.mark_running(task.task_id, moment=now)
         outcome = executor.submit(task.request)
-        return self._settle(task, outcome, now=now)
+        settled = self._settle(task, outcome, now=now)
+        if on_outcome is not None and settled.status.is_terminal:
+            on_outcome(settled, outcome)
+        return settled
 
     def _settle(
         self, task: BackgroundTask, outcome: ExecutionOutcome, *, now: datetime

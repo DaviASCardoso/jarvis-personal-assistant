@@ -18,7 +18,7 @@ import json
 import logging
 import sys
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -27,6 +27,7 @@ from typing import Final
 from jarvis import __version__
 from jarvis.agent import (
     ActionResultSummary,
+    AgentInput,
     AgentRuntime,
     AgentTurn,
     Capability,
@@ -1078,6 +1079,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Submete a ação proposta ao Policy Engine (por padrão a decisão só é impressa).",
     )
 
+    pursue = agent_actions.add_parser(
+        "pursue", help="Persegue um objetivo em múltiplos passos, até parar ou pedir confirmação."
+    )
+    pursue.add_argument("goal", help="O objetivo para o agente perseguir.")
+    pursue.add_argument("--conversation-id")
+    pursue.add_argument(
+        "--max-steps",
+        type=int,
+        default=None,
+        help="Teto de passos (default: JARVIS_AGENT_PURSUE_MAX_STEPS).",
+    )
+
     skills = subparsers.add_parser("skills", help="Lista as capacidades registradas.")
     skills.set_defaults(skills_parser=skills)
     skills_actions = skills.add_subparsers(dest="skills_command")
@@ -1725,6 +1738,52 @@ def _submit_proposal(
             tools.close()
 
 
+def _result_summary(outcome: ExecutionOutcome) -> ActionResultSummary:
+    return ActionResultSummary(
+        skill=outcome.skill,
+        status=outcome.status.value,
+        execution_id=outcome.execution_id,
+        summary=outcome.summary,
+        reason=outcome.reason,
+    )
+
+
+_DEFAULT_REFLECTION_PROMPT: Final = (
+    "Explique, em uma frase, o desfecho da ação que acabou de ser tentada."
+)
+
+
+def _reflect_on_outcome(
+    runtime: AgentRuntime,
+    outcome: ExecutionOutcome,
+    *,
+    conversation_id: str,
+    recent: tuple[EventSummary, ...],
+    prompt: str = _DEFAULT_REFLECTION_PROMPT,
+) -> AgentTurn | None:
+    """Segundo turno de raciocínio — só quando a execução **não** deu certo.
+
+    Em `act_and_notify` bem-sucedido a mensagem do agente já existe, e pagar uma
+    chamada extra ao modelo para reformular o que já foi dito é desperdício de
+    quota. Já uma negação ou uma falha merecem uma frase em linguagem natural, e
+    é aí que o "observe result" do loop se fecha (Fase 9.1) — reaproveitado
+    tanto pelo caminho síncrono (`agent ask --execute`) quanto pelos
+    assíncronos (Background Task Manager, Trigger Engine).
+
+    Devolve `None` em sucesso — quem chama decide o que fazer com `None`
+    (normalmente: nada). Nunca submete uma nova ação a partir do turno de
+    reflexão: encadear ações automaticamente é escopo do Goal Pursuit Loop
+    (9.2), com suas próprias salvaguardas de teto e confirmação.
+    """
+    if outcome.status is ExecutionStatus.COMPLETED:
+        return None
+    return runtime.handle(
+        UserMessage(text=prompt, at=datetime.now(UTC), conversation_id=conversation_id),
+        recent_events=recent,
+        last_action_result=_result_summary(outcome),
+    )
+
+
 def _explain_outcome(
     runtime: AgentRuntime,
     outcome: ExecutionOutcome,
@@ -1732,31 +1791,12 @@ def _explain_outcome(
     conversation_id: str,
     recent: tuple[EventSummary, ...],
 ) -> None:
-    """Segundo turno de raciocínio — só quando a execução **não** deu certo.
-
-    Em `act_and_notify` bem-sucedido a mensagem do agente já existe, e pagar uma
-    chamada extra ao modelo para reformular o que já foi dito é desperdício de
-    quota. Já uma negação ou uma falha merecem uma frase em linguagem natural, e
-    é aí que o "observe result" do loop se fecha.
-    """
-    if outcome.status is ExecutionStatus.COMPLETED:
+    follow_up = _reflect_on_outcome(
+        runtime, outcome, conversation_id=conversation_id, recent=recent
+    )
+    if follow_up is None:
         return
     print()
-    follow_up = runtime.handle(
-        UserMessage(
-            text="Explique ao usuário, em uma frase, o desfecho da ação que acabou de ser tentada.",
-            at=datetime.now(UTC),
-            conversation_id=conversation_id,
-        ),
-        recent_events=recent,
-        last_action_result=ActionResultSummary(
-            skill=outcome.skill,
-            status=outcome.status.value,
-            execution_id=outcome.execution_id,
-            summary=outcome.summary,
-            reason=outcome.reason,
-        ),
-    )
     if follow_up.decision.message is not None:
         print(f"agente      {follow_up.decision.message}")
 
@@ -1878,6 +1918,90 @@ def _agent_react(args: argparse.Namespace, settings: Settings) -> int:
     return EXIT_OK
 
 
+def _agent_pursue(args: argparse.Namespace, settings: Settings) -> int:
+    """Fase 9.2 — Goal Pursuit Loop.
+
+    `Decision` continua atômica (ADR-0003 intacto): cada passo é uma proposta
+    isolada, submetida à Policy Engine individualmente, como em `agent ask
+    --execute`. "Planejar" aqui não é um novo tipo de decisão com uma lista de
+    passos — é o composition root reinvocando `AgentRuntime.handle` com o
+    `last_action_result` do passo anterior, até um dos cinco critérios de
+    parada abaixo. O loop nunca insiste sozinho: confirmação pendente e
+    negação de política sempre pausam, nunca são contornadas.
+    """
+    conversation_id = args.conversation_id or new_event_id()
+    max_steps = args.max_steps if args.max_steps is not None else settings.agent_pursue_max_steps
+    skills = build_skill_registry()
+    with (
+        SqliteEventStore.open(event_store_path(settings)) as store,
+        SqliteContextSnapshotRepository.open(context_store_path(settings)) as snapshots,
+        SqliteMemoryRepository.open(memory_store_path(settings)) as memories,
+    ):
+        context = _prepared_context(settings, store, snapshots)
+        runtime = build_agent_runtime(settings, context=context, memories=memories)
+        recent = _recent_events(store)
+        memory_manager = build_memory_manager(memories)
+
+        last_result: ActionResultSummary | None = None
+        agent_input: AgentInput = UserMessage(
+            text=args.goal, at=datetime.now(UTC), conversation_id=conversation_id
+        )
+        previous_proposal: tuple[str, Mapping[str, JsonValue]] | None = None
+
+        for step in range(1, max_steps + 1):
+            print(f"passo       {step}/{max_steps}")
+            turn = runtime.handle(
+                agent_input,
+                recent_events=recent,
+                capabilities=capabilities_from(skills),
+                last_action_result=last_result,
+            )
+            _record_decision(turn, context_as_of=context.current().as_of, store=store)
+            write = _persist_memory_proposal(turn, memory_manager, provenance=USER_ASSERTION)
+            _print_turn(turn, write=write, submitting=turn.decision.proposes_action)
+
+            if not turn.decision.proposes_action:
+                print("agente      concluído: nada mais a propor")
+                break
+
+            proposal = turn.decision.action
+            assert proposal is not None  # garantido por `proposes_action`
+            current = (proposal.skill, proposal.parameters)
+            if current == previous_proposal:
+                print("agente      parado: repetiria a mesma ação")
+                break
+
+            outcome = _submit_proposal(
+                settings, turn=turn, store=store, skills=skills, actor=Actor.USER
+            )
+            if outcome is None:
+                break
+            print()
+            _print_outcome(outcome)
+
+            if outcome.status is ExecutionStatus.AWAITING_CONFIRMATION:
+                print(
+                    "agente      pausado: confirme com "
+                    f"`jarvis action confirm {outcome.execution_id}`"
+                )
+                break
+            if outcome.status in (ExecutionStatus.DENIED, ExecutionStatus.REJECTED):
+                print("agente      parado: ação negada, não insistindo")
+                break
+
+            previous_proposal = current
+            last_result = _result_summary(outcome)
+            agent_input = UserMessage(
+                text="Continue perseguindo o objetivo original considerando o resultado da ação.",
+                at=datetime.now(UTC),
+                conversation_id=conversation_id,
+            )
+            print()
+        else:
+            print(f"agente      parado: {max_steps} passos atingidos")
+    return EXIT_OK
+
+
 def _agent(args: argparse.Namespace, settings: Settings) -> int:
     if args.agent_command is None:
         args.agent_parser.print_help()
@@ -1886,6 +2010,8 @@ def _agent(args: argparse.Namespace, settings: Settings) -> int:
         return _agent_ask(args, settings)
     if args.agent_command == "chat":
         return _agent_chat(args, settings)
+    if args.agent_command == "pursue":
+        return _agent_pursue(args, settings)
     return _agent_react(args, settings)
 
 
@@ -2249,20 +2375,60 @@ def _tasks_cancel(args: argparse.Namespace, settings: Settings) -> int:
     return EXIT_OK
 
 
+def _make_task_outcome_callback(
+    settings: Settings,
+    *,
+    store: SqliteEventStore,
+    context: ContextEngine,
+    memories: SqliteMemoryRepository,
+    bus: EventBus | None = None,
+) -> Callable[[BackgroundTask, ExecutionOutcome], None]:
+    """Fase 9.1: fecha o loop `observe result` para o Background Task Manager.
+
+    `task.request.correlation_id` dobra de `conversation_id` — mesma
+    convenção de `VoiceSession` (Fase 6.4): a cadeia causal inteira de uma
+    tarefa já é uma conversa de um só assunto.
+    """
+    prompt = (
+        "Explique, em uma frase, o desfecho desta tarefa em background que acabou de ser tentada."
+    )
+
+    def on_outcome(task: BackgroundTask, outcome: ExecutionOutcome) -> None:
+        runtime = build_agent_runtime(settings, context=context, memories=memories)
+        follow_up = _reflect_on_outcome(
+            runtime,
+            outcome,
+            conversation_id=task.request.correlation_id,
+            recent=_recent_events(store),
+            prompt=prompt,
+        )
+        if follow_up is None:
+            return
+        _record_decision(follow_up, context_as_of=context.current().as_of, store=store, bus=bus)
+
+    return on_outcome
+
+
 def _tasks_run_due(settings: Settings) -> int:
     skills = build_skill_registry()
     with (
         SqliteEventStore.open(event_store_path(settings)) as store,
+        SqliteContextSnapshotRepository.open(context_store_path(settings)) as snapshots,
+        SqliteMemoryRepository.open(memory_store_path(settings)) as memories,
         SqliteActionRepository.open(action_store_path(settings)) as actions,
         SqliteTaskRepository.open(task_store_path(settings)) as repository,
     ):
+        context = _prepared_context(settings, store, snapshots)
+        on_outcome = _make_task_outcome_callback(
+            settings, store=store, context=context, memories=memories
+        )
         tools = build_tool_registry(settings)
         try:
             executor = build_action_executor(
                 settings, store=store, actions=actions, tools=tools, skills=skills
             )
             manager = build_task_manager(settings, repository=repository)
-            settled = manager.run_due(executor=executor)
+            settled = manager.run_due(executor=executor, on_outcome=on_outcome)
         finally:
             tools.close()
     if not settled:
@@ -2485,7 +2651,7 @@ def _make_trigger_callback(
                     settings, store=store, actions=actions, tools=tools, skills=skills
                 )
                 # `Actor.EVENT`: ninguém pediu isto — mesma convenção de `agent react`.
-                executor.submit(
+                outcome = executor.submit(
                     ActionRequest(
                         skill=proposal.skill,
                         parameters=dict(proposal.parameters),
@@ -2497,6 +2663,32 @@ def _make_trigger_callback(
                 )
             finally:
                 tools.close()
+
+            # Fase 9.1: fecha o loop `observe result` também no caminho
+            # proativo — uma negação/falha vira uma segunda decisão, que pode
+            # gerar sua própria notificação, exatamente como o sucesso já faz.
+            follow_up = _reflect_on_outcome(
+                runtime,
+                outcome,
+                conversation_id=turn.decision.correlation_id,
+                recent=_recent_events(store),
+            )
+            if follow_up is not None:
+                _record_decision(
+                    follow_up,
+                    context_as_of=context.current().as_of,
+                    store=store,
+                    bus=proactivity.bus,
+                )
+                follow_up_notification = _notification_from_turn(follow_up, event=event)
+                if follow_up_notification is not None:
+                    proactivity.notifications.notify(
+                        follow_up_notification,
+                        importance=(
+                            follow_up.importance.total if follow_up.importance is not None else 1.0
+                        ),
+                        context=context.current(),
+                    )
 
     return on_match
 
@@ -2634,9 +2826,12 @@ def _run_resident(args: argparse.Namespace, settings: Settings) -> int:
         task_executor = build_action_executor(
             settings, store=store, actions=actions, tools=task_tools, skills=skills
         )
+        task_outcome = _make_task_outcome_callback(
+            settings, store=store, context=context, memories=memories, bus=proactivity.bus
+        )
 
         def tick_tasks() -> None:
-            proactivity.task_manager.run_due(executor=task_executor)
+            proactivity.task_manager.run_due(executor=task_executor, on_outcome=task_outcome)
 
         tick_tasks()
 

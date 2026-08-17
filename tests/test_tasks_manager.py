@@ -119,6 +119,59 @@ def test_retries_exhaust_after_max_attempts() -> None:
     assert second[0].last_error == "boom-again"
 
 
+def test_run_due_calls_on_outcome_for_a_succeeded_task() -> None:
+    manager = _manager()
+    manager.submit(make_request())
+    executor = FakeExecutor([make_outcome(status=ExecutionStatus.COMPLETED)])
+    seen: list[tuple[TaskStatus, ExecutionStatus]] = []
+
+    manager.run_due(
+        executor=executor,
+        on_outcome=lambda task, outcome: seen.append((task.status, outcome.status)),
+    )
+
+    assert seen == [(TaskStatus.SUCCEEDED, ExecutionStatus.COMPLETED)]
+
+
+def test_run_due_calls_on_outcome_for_a_permanently_failed_task() -> None:
+    manager = _manager()
+    manager.submit(make_request())
+    executor = FakeExecutor([make_outcome(status=ExecutionStatus.DENIED, reason="policy_denied")])
+    seen: list[tuple[TaskStatus, ExecutionStatus]] = []
+
+    manager.run_due(
+        executor=executor,
+        on_outcome=lambda task, outcome: seen.append((task.status, outcome.status)),
+    )
+
+    assert seen == [(TaskStatus.FAILED, ExecutionStatus.DENIED)]
+
+
+def test_run_due_does_not_call_on_outcome_for_a_retry_still_in_flight() -> None:
+    manager = _manager(retry_base_delay_seconds=10.0, retry_backoff=2.0)
+    manager.submit(make_request(), max_attempts=5)
+    executor = FakeExecutor([make_outcome(status=ExecutionStatus.FAILED, reason="boom")])
+    seen: list[tuple[TaskStatus, ExecutionStatus]] = []
+
+    settled = manager.run_due(
+        executor=executor,
+        on_outcome=lambda task, outcome: seen.append((task.status, outcome.status)),
+    )
+
+    assert settled[0].status is TaskStatus.RETRYING
+    assert seen == []
+
+
+def test_run_due_without_on_outcome_behaves_exactly_as_before() -> None:
+    manager = _manager()
+    manager.submit(make_request())
+    executor = FakeExecutor([make_outcome(status=ExecutionStatus.COMPLETED)])
+
+    settled = manager.run_due(executor=executor)
+
+    assert settled[0].status is TaskStatus.SUCCEEDED
+
+
 def test_cancel_non_terminal_task_succeeds() -> None:
     manager = _manager()
     task = manager.submit(make_request())

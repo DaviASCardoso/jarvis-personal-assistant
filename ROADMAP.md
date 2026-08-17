@@ -11,7 +11,8 @@
 
 # Visão geral
 
-O sistema será construído em oito fases:
+O sistema será construído em oito fases (a Fase 9 é uma adição pós-v0.1, ver
+nota na própria seção — não fazia parte do plano original de 16 semanas):
 
 - [x] **Fase 0 — Foundation**
 - [x] **Fase 1 — Event System**
@@ -22,6 +23,7 @@ O sistema será construído em oito fases:
 - [x] **Fase 6 — Voice**
 - [x] **Fase 7 — Proactivity + Autonomy**
 - [x] **Fase 8 — Integration + Hardening**
+- [ ] **Fase 9 — Deepening Reasoning + Autonomy** (adicionada pós-v0.1)
 
 ## Metodologia de desenvolvimento
 
@@ -1488,7 +1490,140 @@ release: jarvis v0.1
 
 ### Release
 
-- [ ] **FASE 8 CONCLUÍDA**
+- [x] **FASE 8 CONCLUÍDA**
+
+---
+
+# FASE 9 — DEEPENING REASONING + AUTONOMY
+
+> Fase **acrescentada depois do lançamento v0.1**, fora das oito fases
+> originais deste roadmap (linha 14) e das 16 semanas planejadas — mesmo
+> precedente de anotar em vez de reescrever silenciosamente o histórico já
+> usado nas subfases 2.2, 3.2, 5.7/5.8 e 6.7/6.8. Tema definido pelo usuário:
+> aprofundar autonomia/raciocínio do Agent Runtime, não integrações externas
+> nem empacotamento. Todo o escopo veio de lacunas já documentadas no próprio
+> repositório como decisão consciente e adiada (Fases 4.6, 7.6), nunca
+> esquecimento silencioso — ver `docs/architecture-contracts.md` e o
+> levantamento desta sessão. Duas lacunas igualmente reais foram
+> deliberadamente excluídas (aprendizado de pesos do Importance Engine,
+> Calendar/Email Skills) — ver nota ao final da fase.
+
+**Objetivo:** fechar o loop `observe result` que a subfase 4.6 deixou aberto
+nos caminhos assíncronos, usar esse fechamento para permitir múltiplos passos
+de raciocínio-e-ação em direção a um objetivo sem tornar `Decision` composta,
+e permitir que Conditional Triggers consultem memória de longo prazo sem
+violar a separação de componentes do Ports & Adapters.
+
+## 9.1 — Action Outcome Feedback
+
+- [x] Extrair `_result_summary`/`_reflect_on_outcome` de `_explain_outcome`
+      (reaproveitado por tasks, proatividade e pelo caminho síncrono existente)
+- [x] `TaskManager.run_due`/`_run_one` aceitam `on_outcome`, chamado só em
+      estado terminal (nunca por tentativa que só agendou retry)
+- [x] `_make_task_outcome_callback` fecha o loop no Background Task Manager
+      (`jarvis tasks run-due` e o tick de `jarvis run`)
+- [x] `on_match` (Trigger Engine) reflete sobre o desfecho de uma ação
+      proativa não concluída, registra a segunda decisão e notifica
+- [x] Criar testes (`tests/test_tasks_manager.py`,
+      `tests/test_cli_proactivity.py`)
+
+**Commit esperado:**
+
+```text
+feat: close action outcome feedback loop
+```
+
+---
+
+## 9.2 — Goal Pursuit Loop
+
+- [x] `Decision` permanece atômica — ADR-0003 intacto, cada passo passa pela
+      Policy Engine individualmente
+- [x] `jarvis agent pursue "<objetivo>" [--max-steps N]` — novo subcomando,
+      não extensão de `ask`
+- [x] `agent_pursue_max_steps` em `Settings` (`JARVIS_AGENT_PURSUE_MAX_STEPS`,
+      default 6)
+- [x] Cinco critérios de parada: decisão sem ação proposta; teto de passos;
+      confirmação pendente (pausa, nunca auto-confirma); negação de política
+      (não insiste); proposta idêntica à anterior (salvaguarda barata contra
+      repetição)
+- [x] Criar testes (`tests/test_cli_agent_pursue.py`)
+
+**Commit esperado:**
+
+```text
+feat: implement goal pursuit loop
+```
+
+---
+
+## 9.3 — Memory-Aware Conditional Triggers
+
+- [ ] Novo ADR documentando a extensão pontual Proactivity↔Memory (leitura,
+      unidirecional, só via bridge adapter)
+- [ ] Atualizar `architecture-contracts.md §3.17` (remove `jarvis.memory` da
+      lista "proibido conhecer", documenta o bridge)
+- [ ] `proactivity/adapters/memory_bridge.py`, no molde de
+      `memory/adapters/context_bridge.py`
+- [ ] `ConditionOp` ganha `memory_present`/`memory_equals`
+- [ ] `rules_config.py` aceita o novo operador
+- [ ] Criar testes
+
+**Commit esperado:**
+
+```text
+feat: add memory-aware conditional triggers
+```
+
+---
+
+## 9.4 — Proactivity + Reasoning Integration
+
+- [ ] Wiring de 9.1/9.3 em `jarvis run`, sem thread nova
+- [ ] Decidir e registrar se `agent pursue` também vira caminho de decisão
+      proativa automática, ou fica só comando manual
+- [ ] Teste de regressão: `JARVIS_PROACTIVITY_ENABLED=false` idêntico ao
+      pré-Fase-9
+- [ ] Teste end-to-end completo (evento → trigger → decisão → ação →
+      resultado → segunda decisão → notificação; regra `memory_present`
+      suprimindo notificação)
+
+**Commit esperado:**
+
+```text
+feat: integrate goal pursuit and memory-aware proactivity
+```
+
+---
+
+## 9.5 — Documentation Review
+
+- [ ] Atualizar `docs/agent-runtime.md`, `docs/proactivity.md`
+- [ ] Atualizar `docs/architecture-contracts.md` §3.15 (composition root pode
+      reinvocar `AgentRuntime.handle` em sequência limitada)
+- [ ] Atualizar `README.md` (`jarvis agent pursue`)
+- [ ] Atualizar este `ROADMAP.md` subfase a subfase (já feito nesta sessão,
+      conforme cada uma concluiu)
+
+**Commit esperado:**
+
+```text
+docs: document goal pursuit and memory-aware proactivity
+```
+
+---
+
+### Fora de escopo (avaliado e excluído, não esquecido)
+
+- **Aprendizado de pesos do Importance Engine**: a subfase 4.4 proibiu
+  deliberadamente um "AI importance model"; o cooldown por assunto do
+  `NotificationManager` (7.3) já cobre o atrito prático imediato.
+- **Calendar/Email Skills (5.7/5.8), empacotamento/Docker**: fora do tema
+  escolhido para esta fase.
+
+### Fase 9 completa
+
+- [ ] **FASE 9 CONCLUÍDA**
 
 ---
 
@@ -1629,15 +1764,33 @@ O sistema consegue decidir quando deve falar e agir.
 **Semana 16**
 
 ```text
-[ ] Computer Awareness
-[ ] Computer Skill
-[ ] Security
-[ ] Audit
-[ ] Evaluation
-[ ] Recovery
-[ ] Performance
+[x] Computer Awareness
+[x] Computer Skill
+[x] Security
+[x] Audit
+[x] Evaluation
+[x] Recovery
+[x] Performance
+[x] Documentation
+```
+
+---
+
+## M9 — Deepening Reasoning + Autonomy
+
+**Pós-v0.1 (adicionada fora do plano original de 16 semanas)**
+
+```text
+[x] Action Outcome Feedback
+[x] Goal Pursuit Loop
+[ ] Memory-Aware Conditional Triggers
+[ ] Proactivity + Reasoning Integration
 [ ] Documentation
 ```
+
+O sistema fecha o loop `observe result` e persegue objetivos em múltiplos
+passos, sem deixar de ser o agente atômico e revisável por decisão que a
+Fase 4 desenhou.
 
 ---
 
@@ -1918,6 +2071,9 @@ TTS
 | 2026-08-17 | 8.8 | ✅ | `refactor: harden agent runtime` |
 | 2026-08-17 | 8.9 | ✅ | `docs: complete system documentation` |
 | 2026-08-17 | 8.10 | ✅ | `release: jarvis v0.1` |
+| 2026-08-17 | 9.0 | ✅ | `chore: close out phase 8 completion tracking` |
+| 2026-08-17 | 9.1 | ✅ | `feat: close action outcome feedback loop` |
+| 2026-08-17 | 9.2 | ✅ | `feat: implement goal pursuit loop` |
 
 ---
 
