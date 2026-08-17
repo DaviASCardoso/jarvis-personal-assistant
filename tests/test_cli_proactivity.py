@@ -225,12 +225,15 @@ class TestTriggerCallbackClosesTheLoop:
     conclui também gera uma segunda decisão, exatamente como o caminho
     síncrono e o Background Task Manager (`TestTasksRunDueClosesTheLoop`)."""
 
-    def test_a_denied_proactive_action_produces_a_second_decision(
+    def test_a_denied_proactive_action_produces_a_second_decision_and_notifies(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         from jarvis.decisions.query import project_decisions
         from jarvis.events.event import Event, RecordedEvent, new_event_id
+        from jarvis.notify.manager import NotificationManager
+        from jarvis.proactivity import InterruptionPolicy, InterruptionSettings
         from jarvis.proactivity.triggers import TriggerRule
+        from tests.notify_doubles import FakeChannel
 
         settings = Settings(
             data_dir=tmp_path,
@@ -242,7 +245,9 @@ class TestTriggerCallbackClosesTheLoop:
         provider = StubLLMProvider(
             [
                 decision_json(type="act", message=None, action={"skill": "not.a.real.skill"}),
-                decision_json(type="notify", reason="a ação proativa falhou, aviso"),
+                decision_json(
+                    type="notify", reason="a ação proativa falhou, aviso", message="ação falhou"
+                ),
             ]
         )
         monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
@@ -265,6 +270,18 @@ class TestTriggerCallbackClosesTheLoop:
                 memories=memories,
                 skills=skills,
             )
+            # Canal programável, limiar baixo de propósito: este teste prova
+            # a entrega mecânica da segunda notificação (Fase 9.4: "→
+            # notificação" fecha o loop de 9.1), não a calibração numérica do
+            # Importance Engine — mesmo critério de
+            # `test_full_reasoning_path_produces_decision_notification_and_action`.
+            channel = FakeChannel()
+            proactivity.notifications = NotificationManager(
+                channels=[channel],
+                interruption_policy=InterruptionPolicy(
+                    InterruptionSettings(importance_threshold=0.0)
+                ),
+            )
             on_match = cli._make_trigger_callback(
                 settings,
                 store=store,
@@ -281,8 +298,6 @@ class TestTriggerCallbackClosesTheLoop:
                 occurred_at=NOW,
                 payload={},
             )
-            from jarvis.events.event import RecordedEvent
-
             recorded = RecordedEvent(event=event, recorded_at=NOW)
             rule = TriggerRule(trigger_id="t1", event_types=frozenset({event.event_type}))
             on_match(recorded, rule)
@@ -292,6 +307,8 @@ class TestTriggerCallbackClosesTheLoop:
         assert len(records) == 2
         assert records[0].decision_type == "act"
         assert records[1].decision_type == "notify"
+        assert len(channel.sent) == 1
+        assert channel.sent[0].body == "ação falhou"
         assert records[1].reason == "a ação proativa falhou, aviso"
         assert len(provider.requests) == 2
 

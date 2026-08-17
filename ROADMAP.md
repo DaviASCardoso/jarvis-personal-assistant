@@ -1582,14 +1582,29 @@ feat: add memory-aware conditional triggers
 
 ## 9.4 — Proactivity + Reasoning Integration
 
-- [ ] Wiring de 9.1/9.3 em `jarvis run`, sem thread nova
-- [ ] Decidir e registrar se `agent pursue` também vira caminho de decisão
-      proativa automática, ou fica só comando manual
-- [ ] Teste de regressão: `JARVIS_PROACTIVITY_ENABLED=false` idêntico ao
-      pré-Fase-9
-- [ ] Teste end-to-end completo (evento → trigger → decisão → ação →
-      resultado → segunda decisão → notificação; regra `memory_present`
-      suprimindo notificação)
+- [x] Wiring de 9.1/9.3 em `jarvis run`, sem thread nova — já entregue
+      diretamente nas subfases 9.1 (`_make_task_outcome_callback` em
+      `_tasks_run_due`/`tick_tasks`, `on_match` reflete e notifica) e 9.3
+      (`MemoryPresenceBridge` em `_build_proactivity`), sem wiring adicional
+      pendente
+- [x] Decidido: `agent pursue` **fica só comando manual**. Nenhuma regra real
+      hoje pede execução multi-passo disparada por evento sem supervisão
+      direta, e um caminho proativo para ele seria a abstração especulativa
+      que a regra 11 do roadmap proíbe — autonomia multi-passo sem
+      supervisão é um salto de risco maior que o Trigger Engine (que só
+      propõe **um** passo por evento), e não há justificativa concreta para
+      dar esse salto agora. Revisitar quando houver caso de uso real.
+- [x] Teste de regressão: `JARVIS_PROACTIVITY_ENABLED=false` idêntico ao
+      pré-Fase-9 (`TestBuildProactivity`, inalterado desde a Fase 7 — ainda
+      passa; `TestTasksRunDueClosesTheLoop` prova que 9.1 funciona com
+      `Settings()` default, ou seja, independente do interruptor de
+      proatividade, como o Background Task Manager já era desde a 7.5)
+- [x] Teste end-to-end completo (`tests/test_cli_proactivity.py::
+      TestTriggerCallbackClosesTheLoop` — evento → trigger → decisão → ação
+      → resultado → segunda decisão → notificação, com `FakeChannel`;
+      `tests/test_proactivity_integration.py::
+      test_a_quiet_hours_memory_suppresses_a_conditional_trigger` — regra
+      `not_(memory_present(...))` suprimindo uma Conditional Trigger)
 
 **Commit esperado:**
 
@@ -1787,7 +1802,7 @@ O sistema consegue decidir quando deve falar e agir.
 [x] Action Outcome Feedback
 [x] Goal Pursuit Loop
 [x] Memory-Aware Conditional Triggers
-[ ] Proactivity + Reasoning Integration
+[x] Proactivity + Reasoning Integration
 [ ] Documentation
 ```
 
@@ -2078,6 +2093,7 @@ TTS
 | 2026-08-17 | 9.1 | ✅ | `feat: close action outcome feedback loop` |
 | 2026-08-17 | 9.2 | ✅ | `feat: implement goal pursuit loop` |
 | 2026-08-17 | 9.3 | ✅ | `feat: add memory-aware conditional triggers` |
+| 2026-08-17 | 9.4 | ✅ | `feat: integrate goal pursuit and memory-aware proactivity` |
 
 ---
 

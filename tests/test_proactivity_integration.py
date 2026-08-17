@@ -25,11 +25,20 @@ from jarvis.memory.adapters.hashing_embeddings import HashingEmbeddingProvider
 from jarvis.memory.adapters.sqlite_repository import IN_MEMORY_DATABASE as MEMORY_IN_MEMORY
 from jarvis.memory.adapters.sqlite_repository import SqliteMemoryRepository
 from jarvis.memory.manager import MemoryManager
+from jarvis.memory.memory import MemoryOrigin, MemoryType, Provenance
 from jarvis.notify.manager import NotificationManager
 from jarvis.notify.notification import Notification, NotificationPriority
 from jarvis.policy.engine import PolicyEngine
 from jarvis.policy.rules import PolicyRuleSet
-from jarvis.proactivity.conditions import ActionTemplate, ConditionalRule, ConditionEngine, always
+from jarvis.proactivity.adapters.memory_bridge import MemoryPresenceBridge
+from jarvis.proactivity.conditions import (
+    ActionTemplate,
+    ConditionalRule,
+    ConditionEngine,
+    always,
+    memory_present,
+    not_,
+)
 from jarvis.proactivity.interruption import InterruptionPolicy, InterruptionSettings
 from jarvis.proactivity.triggers import TriggerEngine, TriggerRule
 from jarvis.skills.registry import SkillRegistry
@@ -267,6 +276,37 @@ def test_background_task_manager_retries_then_succeeds() -> None:
     assert len(settled) == 1
     assert settled[0].task_id == task.task_id
     assert settled[0].status.value == "succeeded"
+
+
+def test_a_quiet_hours_memory_suppresses_a_conditional_trigger() -> None:
+    """Fase 9.3/9.4: `not_(memory_present(...))` suprime a regra enquanto a
+    preferência estiver vigente — sem tocar `InterruptionPolicy` nem o Agent
+    Runtime, exatamente o cenário do ADR-0032."""
+    rule = ConditionalRule(
+        rule_id="notify_unless_quiet_hours",
+        when=frozenset({"printer.job_completed"}),
+        condition=not_(memory_present("quiet_hours_preference")),
+        then=ActionTemplate(skill="test.skill"),
+    )
+    engine = ConditionEngine([rule])
+    event = _event()
+
+    with SqliteMemoryRepository.open(MEMORY_IN_MEMORY) as repository:
+        memory = MemoryManager(repository=repository, clock=lambda: DECIDED_AT)
+        bridge = MemoryPresenceBridge(memory, clock=lambda: DECIDED_AT)
+
+        # Sem a preferência gravada, a regra casa normalmente.
+        assert engine.evaluate(event, context=_context(), memory=bridge) is not None
+
+        memory.remember(
+            type=MemoryType.PREFERENCE,
+            content="não notificar depois das 22h",
+            provenance=Provenance(origin=MemoryOrigin.USER),
+            subject="quiet_hours_preference",
+        )
+
+        # Com a preferência vigente, a mesma regra deixa de casar.
+        assert engine.evaluate(event, context=_context(), memory=bridge) is None
 
 
 def test_conditional_trigger_never_calls_the_llm() -> None:
