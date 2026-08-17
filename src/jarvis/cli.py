@@ -2287,7 +2287,15 @@ def _tasks(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def _voice_devices() -> int:
-    from jarvis.voice.adapters.sounddevice_audio import list_devices
+    """Mesma tradução de `ImportError` de `build_audio_io`: sem o extra
+    `voice` instalado, a mensagem precisa ser explícita, não um traceback de
+    `ModuleNotFoundError` (achado da revisão de release da 8.10)."""
+    try:
+        from jarvis.voice.adapters.sounddevice_audio import list_devices
+    except ImportError as error:
+        raise AudioDeviceError(
+            "áudio indisponível: instale o extra com `uv sync --extra voice`"
+        ) from error
 
     devices = list_devices()
     if not devices:

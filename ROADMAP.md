@@ -21,7 +21,7 @@ O sistema será construído em oito fases:
 - [x] **Fase 5 — Skills + MCP**
 - [x] **Fase 6 — Voice**
 - [x] **Fase 7 — Proactivity + Autonomy**
-- [ ] **Fase 8 — Integration + Hardening**
+- [x] **Fase 8 — Integration + Hardening**
 
 ## Metodologia de desenvolvimento
 
@@ -1466,19 +1466,19 @@ docs: complete system documentation
 
 ## 8.10 — Release Review
 
-- [ ] Executar todos os testes
-- [ ] Executar lint
-- [ ] Executar type checking
-- [ ] Validar instalação limpa
-- [ ] Validar configuração
-- [ ] Validar segurança
-- [ ] Validar principais workflows
-- [ ] Validar voz
-- [ ] Validar memória
-- [ ] Validar proatividade
-- [ ] Validar Skills
-- [ ] Validar MCP
-- [ ] Confirmar critérios de v0.1
+- [x] Executar todos os testes (281 passam; 4 falhas pré-existentes em `test_voice_vad.py`, causadas por um ajuste local não commitado em `vad.py`/`config.py` anterior a esta sessão, fora de escopo — ver nota abaixo)
+- [x] Executar lint (`ruff check .` limpo)
+- [x] Executar type checking (`mypy` limpo, 282 arquivos)
+- [x] Validar instalação limpa (`uv sync` — resolve e instala `jarvis==0.1.0`)
+- [x] Validar configuração (`jarvis info` mostra a política efetiva, incluindo as capacidades `computer:*` ausentes por padrão)
+- [x] Validar segurança (`jarvis action run --skill computer.list_processes` nega com `capability_not_granted`, auditável via `jarvis audit show`)
+- [x] Validar principais workflows (`jarvis action run`, `jarvis audit show`, `jarvis tools list`, `jarvis skills list` — testados manualmente contra dados reais)
+- [x] Validar voz (achado real: `jarvis voice devices` vazava `ModuleNotFoundError` cru sem o extra `voice` — corrigido e testado, ver `TestDevicesWithoutAudioBackend`)
+- [x] Validar memória (`jarvis memory list` funcional; suíte de memória passa)
+- [x] Validar proatividade (`jarvis info` mostra `proactivity enabled=não` por padrão; suíte de proatividade passa)
+- [x] Validar Skills (`jarvis skills list` mostra as nove, com risco/efeitos/capacidades corretos)
+- [x] Validar MCP (`jarvis tools list` mostra os dois backends locais; ausência de `mcp.json` não produz erro)
+- [x] Confirmar critérios de v0.1 (ver relatório final da fase)
 
 **Commit esperado:**
 
@@ -1917,7 +1917,7 @@ TTS
 | 2026-08-17 | 8.7 | ✅ | `perf: optimize context and memory retrieval` (nenhuma otimização foi necessária — ver 8.7) |
 | 2026-08-17 | 8.8 | ✅ | `refactor: harden agent runtime` |
 | 2026-08-17 | 8.9 | ✅ | `docs: complete system documentation` |
-| — | 8.10 | ⬜ | — |
+| 2026-08-17 | 8.10 | ✅ | `release: jarvis v0.1` |
 
 ---
 

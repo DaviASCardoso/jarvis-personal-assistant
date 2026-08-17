@@ -3,7 +3,7 @@
 Agente pessoal de IA, construído de forma incremental e orientado a eventos,
 contexto e memória.
 
-> **Status:** Fase 8 — Integration + Hardening em conclusão. O Jarvis registra
+> **Status:** Fase 8 — Integration + Hardening concluída (v0.1). O Jarvis registra
 > acontecimentos como fatos imutáveis, os projeta em um estado atual consultável,
 > lembra (memórias tipadas, com proveniência, validade e ranking explicável),
 > raciocina sobre tudo isso com um LLM atrás de um port vendor-agnóstico e

@@ -7,6 +7,7 @@ que a fronteira de ports existe para permitir.
 
 import json
 import sqlite3
+import sys
 import urllib.request
 from pathlib import Path
 
@@ -148,6 +149,18 @@ def test_a_missing_audio_backend_says_how_to_install_it(
     monkeypatch.setattr(cli, "build_audio_io", refuse)
 
     assert main(["voice", "say", "oi"]) == 1
+    assert "uv sync --extra voice" in capsys.readouterr().err
+
+
+def test_devices_without_the_audio_backend_says_how_to_install_it(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Achado da revisão de release da 8.10: `voice devices` importava o
+    backend direto, sem a mesma tradução de `ImportError` que `build_audio_io`
+    já dá às outras Skills de voz — um `ModuleNotFoundError` cru vazava."""
+    monkeypatch.setitem(sys.modules, "jarvis.voice.adapters.sounddevice_audio", None)
+
+    assert main(["voice", "devices"]) == 1
     assert "uv sync --extra voice" in capsys.readouterr().err
 
 

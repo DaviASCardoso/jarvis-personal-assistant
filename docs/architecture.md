@@ -38,7 +38,7 @@ e, paralelamente, uma conversa por voz que percorre o mesmo núcleo de
 raciocínio (`wake word → STT → agente → contexto+memória → decisão → ação →
 TTS`).
 
-**Estado atual (Fases 0 a 7 concluídas; Fase 8 em conclusão):** a cadeia da
+**Estado atual (Fases 0 a 8 concluídas — v0.1):** a cadeia da
 esquerda para a direita existe em código — Event System, Context Engine,
 Memory System, Agent Runtime, Policy Engine, Skills, Tool Router e cliente
 MCP. O ciclo `evento → contexto → memória → raciocínio → decisão → política
