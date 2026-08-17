@@ -1239,12 +1239,12 @@ e Y for verdadeiro
 faça Z
 ```
 
-- [ ] Criar condições
-- [ ] Integrar contexto
-- [ ] Integrar memória
-- [ ] Integrar eventos
-- [ ] Executar ações
-- [ ] Criar testes
+- [x] Criar condições — seis operadores fechados (`always`/`context_equals`/`context_present`/`payload_equals`/`and`/`or`/`not`), sem `eval`
+- [x] Integrar contexto — `context_equals`/`context_present` sobre `CurrentContext`, respeitando frescor
+- [ ] Integrar memória — fora do escopo desta subfase: nenhum operador de condição chegou a consultar memória, porque nenhuma regra concreta desta fase precisa disso, e um operador sem caso de uso real seria a abstração especulativa que `architecture-contracts.md §1` proíbe. `docs/phase-7-plan.md §7.6` (aprovado) já não previa este operador. `payload_equals`/`context_equals` cobrem os casos concretos de automação hoje; um `memory_present`/`memory_equals` entra atrás do mesmo `ConditionOp` fechado quando houver uma regra real que precise dele
+- [x] Integrar eventos — `ConditionalTriggerConsumer` (`EventConsumer`), mesmo padrão do Trigger Engine (7.1)
+- [x] Executar ações — produz `ActionRequest(actor=Actor.SYSTEM, ...)`; **sem LLM nesta trilha** — quem executa continua sendo `ActionExecutor` (ADR-0016), acionado pelo composition root via callback
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -1901,7 +1901,7 @@ TTS
 | 2026-08-17 | 7.3 | ✅ | `feat: implement notification manager` |
 | 2026-08-17 | 7.4 | ✅ | `feat: implement agent decision logging` |
 | 2026-08-17 | 7.5 | ✅ | `feat: implement background task manager` |
-| — | 7.6 | ⬜ | — |
+| 2026-08-17 | 7.6 | ✅ | `feat: implement conditional triggers` (integração de memória fora de escopo — ver 7.6) |
 | — | 7.7 | ⬜ | — |
 | — | 8.1 | ⬜ | — |
 | — | 8.2 | ⬜ | — |

@@ -6,6 +6,22 @@ recebem callbacks injetados pelo composition root em vez de conhecerem o Agent
 Runtime diretamente (`docs/phase-7-plan.md §1.1`).
 """
 
+from jarvis.proactivity.conditions import (
+    ActionTemplate,
+    Condition,
+    ConditionalRule,
+    ConditionalTriggerConsumer,
+    ConditionEngine,
+    ConditionOp,
+    always,
+    and_,
+    context_equals,
+    context_present,
+    evaluate_condition,
+    not_,
+    or_,
+    payload_equals,
+)
 from jarvis.proactivity.errors import (
     InvalidConditionError,
     InvalidTriggerRuleError,
@@ -22,6 +38,12 @@ from jarvis.proactivity.triggers import TriggerEngine, TriggerEventConsumer, Tri
 
 __all__ = [
     "DEFAULT_INTERRUPTION_SETTINGS",
+    "ActionTemplate",
+    "Condition",
+    "ConditionEngine",
+    "ConditionOp",
+    "ConditionalRule",
+    "ConditionalTriggerConsumer",
     "InterruptionDecision",
     "InterruptionPolicy",
     "InterruptionSettings",
@@ -32,4 +54,12 @@ __all__ = [
     "TriggerEngine",
     "TriggerEventConsumer",
     "TriggerRule",
+    "always",
+    "and_",
+    "context_equals",
+    "context_present",
+    "evaluate_condition",
+    "not_",
+    "or_",
+    "payload_equals",
 ]
