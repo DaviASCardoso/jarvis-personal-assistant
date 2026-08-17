@@ -1409,13 +1409,13 @@ test: add failure and recovery scenarios
 
 ## 8.7 — Performance
 
-- [ ] Medir latência
-- [ ] Medir retrieval
-- [ ] Medir construção de contexto
-- [ ] Medir chamadas ao LLM
-- [ ] Identificar gargalos
-- [ ] Otimizar componentes críticos
-- [ ] Criar benchmarks
+- [x] Medir latência (`parse_decision`, a única parte determinística e offline do turno do agente — ver nota abaixo)
+- [x] Medir retrieval (`scripts/benchmark.py::benchmark_memory_retrieval`, mesmo método do ADR-0009)
+- [x] Medir construção de contexto (`benchmark_context_construction`, `ContextAggregator.refresh`)
+- [ ] Medir chamadas ao LLM (fora de escopo por desenho: exigiria rede/credencial real contra a regra de `uv run pytest` sem rede/quota — `pyproject.toml`'s marker `external`; a única parte do turno do agente que roda offline e é medida aqui é `parse_decision`)
+- [x] Identificar gargalos (nenhum encontrado — números batem com a expectativa do ADR-0009 para a escala de um agente pessoal)
+- [ ] Otimizar componentes críticos (nada a otimizar: nenhum gargalo foi encontrado — inventar otimização sem medição violaria `architecture-contracts.md §1`)
+- [x] Criar benchmarks (`scripts/benchmark.py` + `tests/test_performance_benchmarks.py`)
 
 **Commit esperado:**
 
@@ -1914,7 +1914,7 @@ TTS
 | 2026-08-17 | 8.4 | ✅ | `feat: implement audit logging` |
 | 2026-08-17 | 8.5 | ✅ | `test: add agent behavioral evaluation suite` |
 | 2026-08-17 | 8.6 | ✅ | `test: add failure and recovery scenarios` |
-| — | 8.7 | ⬜ | — |
+| 2026-08-17 | 8.7 | ✅ | `perf: optimize context and memory retrieval` (nenhuma otimização foi necessária — ver 8.7) |
 | — | 8.8 | ⬜ | — |
 | — | 8.9 | ⬜ | — |
 | — | 8.10 | ⬜ | — |
