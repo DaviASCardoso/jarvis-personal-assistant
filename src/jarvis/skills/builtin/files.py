@@ -30,6 +30,22 @@ LIST_DIR: Final[ToolId] = "local:fs.list_dir"
 
 MAX_PATH_LENGTH: Final = 300
 MAX_CONTENT_LENGTH: Final = 100_000
+# Fase 10.4: `summary` é o único canal que `ActionResultSummary` propaga ao
+# próximo turno do agente (`agent/input.py` exclui `data` de propósito) — sem
+# uma prévia aqui, "leia X e resuma" nunca tinha o que resumir.
+MAX_CONTENT_PREVIEW_LENGTH: Final = 400
+
+
+def _read_summary(path: str, *, characters: int, content: str) -> str:
+    prefix = f"Li {characters} caracteres de {path}."
+    if not content:
+        return prefix
+    preview = (
+        content
+        if len(content) <= MAX_CONTENT_PREVIEW_LENGTH
+        else f"{content[:MAX_CONTENT_PREVIEW_LENGTH]}…"
+    )
+    return f"{prefix} Conteúdo: {preview}"
 
 
 def _require_workspace_path(value: JsonValue, *, field_name: str = "path") -> str:
@@ -53,11 +69,17 @@ class ReadFileHandler:
         path = _require_workspace_path(invocation.parameters.get("path"))
         result = invocation.tools.call(READ_TEXT, {"path": path})
         characters = result.data.get("characters", 0)
+        content = result.data.get("content", "")
         return SkillOutput(
             data={"path": path, **dict(result.data)},
-            # O resumo descreve; o conteúdo fica em `data`, que não vai para log
-            # nem para evento.
-            summary=f"Li {characters} caracteres de {path}.",
+            # `data` continua fora de log/evento; `summary` agora carrega uma
+            # prévia do conteúdo (Fase 10.4) — é o campo que de fato viaja
+            # até o próximo turno do agente via `ActionResultSummary`.
+            summary=_read_summary(
+                path,
+                characters=characters if isinstance(characters, int) else 0,
+                content=content if isinstance(content, str) else "",
+            ),
         )
 
 

@@ -114,14 +114,39 @@ class TestFileSkills:
         assert output.data["content"] == "olá"
         assert output.data["path"] == "nota.txt"
 
-    def test_the_summary_describes_without_quoting_the_content(self, workspace: Path) -> None:
-        secret = "consulta com a Dra. Marina"
-        run(by_name("file.write"), workspace, path="diario.txt", content=secret)
+    def test_the_summary_now_carries_a_content_preview(self, workspace: Path) -> None:
+        """Fase 10.4: até aqui `summary` só descrevia ("Li N caracteres de
+        X."), nunca citava o conteúdo — o agente ficava cego ao que acabou de
+        ler. `ActionResultSummary` exclui `data` de propósito
+        (`agent/input.py`), então `summary` é o único canal que de fato
+        chega ao próximo turno; sem uma prévia aqui, "leia X e resuma" nunca
+        tinha o que resumir. Isso não é uma exceção de privacidade: o mesmo
+        `summary` já viajava até o LLM antes, só que vazio de conteúdo."""
+        content = "prefere reuniões pela manhã"
+        run(by_name("file.write"), workspace, path="diario.txt", content=content)
 
         output = run(by_name("file.read"), workspace, path="diario.txt")
 
-        assert secret not in output.summary
+        assert content in output.summary
         assert "diario.txt" in output.summary
+
+    def test_the_preview_is_capped_for_a_long_file(self, workspace: Path) -> None:
+        from jarvis.skills.builtin.files import MAX_CONTENT_PREVIEW_LENGTH
+
+        run(by_name("file.write"), workspace, path="grande.dat", content="z" * 5000)
+
+        output = run(by_name("file.read"), workspace, path="grande.dat")
+
+        assert len(output.summary) < 5000
+        assert output.summary.count("z") == MAX_CONTENT_PREVIEW_LENGTH
+        assert output.summary.endswith("…")
+
+    def test_an_empty_file_keeps_the_old_short_summary(self, workspace: Path) -> None:
+        run(by_name("file.write"), workspace, path="vazio.txt", content="")
+
+        output = run(by_name("file.read"), workspace, path="vazio.txt")
+
+        assert output.summary == "Li 0 caracteres de vazio.txt."
 
     def test_appending_is_supported(self, workspace: Path) -> None:
         run(by_name("file.write"), workspace, path="log.txt", content="a")

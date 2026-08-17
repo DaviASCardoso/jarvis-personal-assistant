@@ -146,3 +146,31 @@ class TestAgentPursue:
     def test_without_a_goal_argument_is_a_usage_error(self) -> None:
         with pytest.raises(SystemExit):
             main(["agent", "pursue"])
+
+    def test_the_next_step_actually_sees_the_file_content(
+        self, monkeypatch: pytest.MonkeyPatch, isolated_data_dir: Path
+    ) -> None:
+        """Fase 10.4: `file.read` deixou de esconder o conteúdo do próprio
+        agente — o segundo passo precisa conseguir citar o que o primeiro
+        leu, não só saber que "algo foi lido"."""
+        workspace = isolated_data_dir / "workspace"
+        workspace.mkdir(parents=True)
+        (workspace / "notas.txt").write_text("prefere reuniões pela manhã", encoding="utf-8")
+
+        provider = StubLLMProvider(
+            [
+                decision_json(
+                    type="act",
+                    message=None,
+                    action={"skill": "file.read", "parameters": {"path": "notas.txt"}},
+                ),
+                decision_json(type="notify", message="pronto"),
+            ]
+        )
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+
+        assert main(["agent", "pursue", "leia notas.txt e resuma"]) == 0
+
+        assert len(provider.requests) == 2
+        second_envelope = provider.requests[1].messages[0].content
+        assert "prefere reuniões pela manhã" in second_envelope

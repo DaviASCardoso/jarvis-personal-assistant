@@ -1730,8 +1730,14 @@ feat: reflect and remember at session end
 
 ## 10.4 — Resultado de Leitura Deixa de Ser Cego
 
-- [ ] `ReadFileHandler.summary` inclui prévia do conteúdo, capada
-- [ ] Testes (skill + integração via `last_action_result`)
+- [x] `ReadFileHandler.summary` inclui prévia do conteúdo, capada
+      (`MAX_CONTENT_PREVIEW_LENGTH=400`; arquivo vazio mantém o resumo curto
+      de antes)
+- [x] Testes (`test_skill_builtin.py` — um teste antigo afirmava
+      explicitamente "conteúdo nunca aparece no resumo"; invertido de
+      propósito, é exatamente o que a 10.4 reverte — + teste de integração
+      em `test_cli_agent_pursue.py` provando que o segundo passo do Goal
+      Pursuit Loop vê o conteúdo real no prompt)
 
 **Commit esperado:**
 
