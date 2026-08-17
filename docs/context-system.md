@@ -23,7 +23,7 @@ reconstruível a partir deles. Events e Memory são a fonte de verdade.
 ```text
 src/jarvis/context/
 ├── observation.py  Observation[T], Freshness, validadores de rótulo/identificador/tempo
-├── model.py        ContextField, os 7 subcontextos, CurrentContext, ContextUpdate, iter_fields
+├── model.py        ContextField, os 8 subcontextos, CurrentContext, ContextUpdate, iter_fields
 ├── freshness.py    TtlPolicy, DEFAULT_TTL_POLICY (TTL por campo)
 ├── errors.py       InvalidContextError, ContextProviderError, ContextSnapshotError
 ├── ports.py        ContextProvider, ContextSnapshotRepository (Protocols)
@@ -32,11 +32,19 @@ src/jarvis/context/
 ├── consumer.py     ContextEventConsumer, CONTEXT_EVENT_TYPES
 ├── engine.py       ContextEngine (reconstrução, captura, histórico, expiração)
 └── adapters/
-    ├── time_provider.py           SystemTimeProvider
-    ├── device_provider.py         LocalDeviceProvider
-    ├── snapshot_serialization.py  ContextSnapshot ↔ registro persistido
-    └── sqlite_snapshots.py        SqliteContextSnapshotRepository
+    ├── time_provider.py             SystemTimeProvider
+    ├── device_provider.py           LocalDeviceProvider
+    ├── window_activity_provider.py  WindowActivityProvider (Fase 8.1)
+    ├── resource_usage_provider.py   ResourceUsageProvider (Fase 8.1)
+    ├── process_activity_provider.py ProcessActivityProvider (Fase 8.1)
+    ├── snapshot_serialization.py    ContextSnapshot ↔ registro persistido
+    └── sqlite_snapshots.py          SqliteContextSnapshotRepository
 ```
+
+O oitavo subcontexto, `ComputerContext` (aplicação/janela ativa, CPU/RAM/GPU/
+rede/ociosidade, processos relevantes), foi acrescentado na Fase 8 —
+detalhado em [`computer.md`](computer.md), não repetido aqui pelo mesmo
+critério que já vale para o resto deste documento.
 
 A raiz do pacote é Core; `adapters/` é Infrastructure. Nenhum módulo de Core
 importa `adapters/`, `sqlite3`, `json`, `pathlib`, `cli` ou `config` — verificado

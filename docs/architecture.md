@@ -38,18 +38,20 @@ e, paralelamente, uma conversa por voz que percorre o mesmo núcleo de
 raciocínio (`wake word → STT → agente → contexto+memória → decisão → ação →
 TTS`).
 
-**Estado atual (Fases 0 a 6 concluídas):** a cadeia da esquerda para a direita
-existe em código — Event System, Context Engine, Memory System, Agent Runtime,
-Policy Engine, Skills, Tool Router e cliente MCP. O ciclo `evento → contexto →
-memória → raciocínio → decisão → política → skill → ferramenta → resultado →
-evento` roda de ponta a ponta pelo CLI. Desde a Fase 6 o segundo ciclo do
-critério de v0.1 também roda: `wake word → STT → agente → contexto + memória →
-decisão → ação → TTS`, com um painel local mostrando tudo isso acontecer.
+**Estado atual (Fases 0 a 7 concluídas; Fase 8 em conclusão):** a cadeia da
+esquerda para a direita existe em código — Event System, Context Engine,
+Memory System, Agent Runtime, Policy Engine, Skills, Tool Router e cliente
+MCP. O ciclo `evento → contexto → memória → raciocínio → decisão → política
+→ skill → ferramenta → resultado → evento` roda de ponta a ponta pelo CLI.
+Desde a Fase 6 o segundo ciclo do critério de v0.1 também roda: `wake word →
+STT → agente → contexto + memória → decisão → ação → TTS`, com um painel
+local mostrando tudo isso acontecer. Desde a Fase 7, o Jarvis também **age
+sozinho quando autorizado** (§6). A Fase 8 acrescenta observação e controle
+do computador — ver [`computer.md`](computer.md), não repetido aqui.
 
 Segue sendo um documento de arquitetura **alvo**, aprovado como contrato na
-subfase 0.3: o que falta é proatividade (Fase 7) e integração com o sistema
-operacional (Fase 8). Cada seção abaixo indica em que fase o componente
-correspondente passou — ou passará — a ter comportamento real.
+subfase 0.3. Cada seção abaixo indica em que fase o componente
+correspondente passou a ter comportamento real.
 
 ---
 
@@ -255,10 +257,11 @@ Detalhe completo: [`architecture-contracts.md §11`](architecture-contracts.md#1
 
 ---
 
-## 6. Proatividade (conceito, não implementado — Fase 7)
+## 6. Proatividade (Fase 7)
 
-O Jarvis eventualmente recebe eventos, constrói contexto e decide, sozinho,
-se deve interromper o usuário. O fluxo conceitual:
+O Jarvis recebe eventos, constrói contexto e decide, sozinho, se deve
+interromper o usuário — atrás de três interruptores de opt-in, desligados
+por padrão ([ADR-0029](adr/0029-proactivity-opt-in-layers.md)). O fluxo:
 
 ```text
 Evento → Contexto → Memória relevante → Avaliação pelo agente →
@@ -275,9 +278,7 @@ recentes antes de decidir interromper — ver
 [ROADMAP.md §7.2](../ROADMAP.md)).
 
 **Silêncio é uma decisão válida.** Um agente que avalia um evento e decide
-`ignore` não falhou em agir — cumpriu a avaliação corretamente. Isso não é
-implementado nesta subfase; nenhuma lógica de trigger ou notificação
-proativa existe antes da Fase 7.
+`ignore` não falhou em agir — cumpriu a avaliação corretamente.
 
 ---
 
@@ -365,4 +366,6 @@ infraestrutura ainda. Detalhe completo:
   [context-system.md](context-system.md) · [memory-system.md](memory-system.md) ·
   [agent-runtime.md](agent-runtime.md) · [skills.md](skills.md) ·
   [mcp.md](mcp.md) · [security.md](security.md) · [voice.md](voice.md) ·
-  [interface.md](interface.md)
+  [interface.md](interface.md) · [proactivity.md](proactivity.md) ·
+  [computer.md](computer.md)
+- Problemas de setup conhecidos: [troubleshooting.md](troubleshooting.md)

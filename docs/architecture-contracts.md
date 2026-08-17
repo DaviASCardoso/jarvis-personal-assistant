@@ -115,6 +115,13 @@ código deve rejeitar qualquer import que a viole.
 - **Responsável:** Event System.
 
 ### 3.2 Context Engine
+
+> Os três Computer Context Providers (aplicação/janela ativa, CPU/RAM/GPU/
+> rede/ociosidade, processos relevantes) foram acrescentados na Fase 8
+> (subfase 8.1) como implementações do port `ContextProvider` já existente
+> — nenhuma mudança de contrato. Ver [`computer.md`](computer.md) e
+> [ADR-0030](adr/0030-psutil-as-a-normal-dependency.md).
+
 - **Responsabilidade:** manter uma projeção consultável do "estado atual",
   derivada de eventos + providers.
 - **Permitido conhecer:** Context Providers (via port), Event Store (leitura).
@@ -188,6 +195,14 @@ código deve rejeitar qualquer import que a viole.
   `deny` / `require_confirmation` — ver §8.4 e §10.
 
 ### 3.6 Skills
+
+> As cinco Skills de computador (`computer.list_processes/focus_window/
+> open_app/close_app/run_command`) foram acrescentadas na Fase 8 (subfase
+> 8.2) — mesmo contrato de `SkillDescriptor`, sem exceção. `risk`/`effects`
+> sobem até `HIGH`/`DESTRUCTIVE` para `close_app`/`run_command`, e nenhuma
+> das cinco capacidades novas está na allowlist default. Ver
+> [`computer.md`](computer.md).
+
 - **Responsabilidade:** representar uma capacidade/workflow que o agente
   pode executar — ver distinção completa Skill vs Tool vs MCP em §8.
 - **Permitido conhecer:** Tool Router port, seu próprio schema de
@@ -207,6 +222,13 @@ código deve rejeitar qualquer import que a viole.
   decisão de autorização (ver §8.4).
 
 ### 3.7 Tool Router
+
+> `ComputerToolBackend` (Fase 8, subfase 8.2) é exatamente o "outros
+> backends no futuro" que este contrato já previa desde a Fase 5 — mesmo
+> `ToolBackend` port de `LocalToolBackend`. `open_app`/`run_command` só
+> aceitam um `name` de uma allowlist carregada pelo composition root, nunca
+> `argv` do chamador ([ADR-0031](adr/0031-command-allowlist-execution-model.md)).
+
 - **Responsabilidade:** rotear uma chamada de tool de uma Skill para o
   backend correto (MCP hoje; outros backends no futuro), normalizar
   resultados/erros, aplicar timeout, registrar execução.
@@ -788,6 +810,11 @@ consequências completas:
   (Fase 7).
 - [ADR-0029](adr/0029-proactivity-opt-in-layers.md) — Autonomia real em três
   interruptores independentes; automação condicional sem LLM (Fase 7).
+- [ADR-0030](adr/0030-psutil-as-a-normal-dependency.md) — `psutil` como
+  dependência normal, não extra opcional (Fase 8).
+- [ADR-0031](adr/0031-command-allowlist-execution-model.md) —
+  `computer.open_app`/`computer.run_command`: só argv de uma allowlist,
+  nunca comando livre (Fase 8).
 
 Decisões de campo-a-campo (schema exato de Event/Context/Memory, nomes
 exatos da taxonomia de erro) **não** viram ADR — são detalhe de contrato,

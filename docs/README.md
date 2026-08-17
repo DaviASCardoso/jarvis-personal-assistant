@@ -64,11 +64,23 @@ Esta pasta reúne a documentação técnica do Jarvis.
   Notification Manager, Decision Log como eventos, Background Task Manager
   ticado sem thread nova, os três interruptores de opt-in, comandos de CLI e
   a limitação conhecida de escopo de reação entre processos).
+- [`computer.md`](computer.md) — **documentação de implementação**: descreve
+  o Computer Context e a Computer Skill que existem em
+  `src/jarvis/context/adapters/{window_activity,resource_usage,
+  process_activity}_provider.py`, `src/jarvis/tools/adapters/
+  computer_backend.py` e `src/jarvis/skills/builtin/computer.py` desde a
+  Fase 8 (os oito campos de contexto de computador, as cinco Skills, o
+  modelo de allowlist de comandos, comandos de CLI e limitações conhecidas).
+- [`troubleshooting.md`](troubleshooting.md) — problemas de setup conhecidos
+  entre todas as fases (credencial ausente, extra de voz não instalado,
+  `psutil` sem permissão em ambiente restrito, painel não abre no
+  navegador), consolidados a partir das mensagens de erro que já existem.
 - [`phase-1-plan.md`](phase-1-plan.md), [`phase-2-plan.md`](phase-2-plan.md),
   [`phase-3-plan.md`](phase-3-plan.md), [`phase-4-plan.md`](phase-4-plan.md),
-  [`phase-5-plan.md`](phase-5-plan.md), [`phase-6-plan.md`](phase-6-plan.md) e
-  [`phase-7-plan.md`](phase-7-plan.md) — os planos técnicos aprovados que
-  guiaram as Fases 1 a 7, incluindo as decisões consideradas e as descartadas.
+  [`phase-5-plan.md`](phase-5-plan.md), [`phase-6-plan.md`](phase-6-plan.md),
+  [`phase-7-plan.md`](phase-7-plan.md) e [`phase-8-plan.md`](phase-8-plan.md)
+  — os planos técnicos aprovados que guiaram as Fases 1 a 8, incluindo as
+  decisões consideradas e as descartadas.
 
 ## Contratos vs. documentação de implementação
 

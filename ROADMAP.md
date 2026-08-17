@@ -1446,15 +1446,15 @@ refactor: harden agent runtime
 
 ## 8.9 — Documentation Review
 
-- [ ] Atualizar arquitetura
-- [ ] Atualizar Skills
-- [ ] Atualizar MCP
-- [ ] Atualizar memória
-- [ ] Atualizar contexto
-- [ ] Atualizar setup
-- [ ] Atualizar troubleshooting
-- [ ] Atualizar roadmap
-- [ ] Documentar decisões finais
+- [x] Atualizar arquitetura (`architecture-contracts.md` §3.2/§3.6/§3.7/§15; `architecture.md` §1/§6/§10 — Fase 7 deixou de aparecer como "não implementado", que era uma lacuna pré-existente)
+- [x] Atualizar Skills (`skills.md` — catálogo agora com nove Skills)
+- [x] Atualizar MCP (`mcp.md` — `ComputerToolBackend` como mais um `ToolBackend`, ao lado do local e do MCP)
+- [x] Atualizar memória (nada mudou em `memory/` na Fase 8 — sem alteração necessária em `memory-system.md`)
+- [x] Atualizar contexto (`context-system.md` — oitavo subcontexto, três providers novos)
+- [x] Atualizar setup (`README.md`, `.env.example` — variáveis e capacidades novas)
+- [x] Atualizar troubleshooting (`docs/troubleshooting.md`, novo)
+- [x] Atualizar roadmap (este arquivo, subfase a subfase)
+- [x] Documentar decisões finais (`docs/computer.md`, novo; ADR-0030/0031)
 
 **Commit esperado:**
 
@@ -1916,7 +1916,7 @@ TTS
 | 2026-08-17 | 8.6 | ✅ | `test: add failure and recovery scenarios` |
 | 2026-08-17 | 8.7 | ✅ | `perf: optimize context and memory retrieval` (nenhuma otimização foi necessária — ver 8.7) |
 | 2026-08-17 | 8.8 | ✅ | `refactor: harden agent runtime` |
-| — | 8.9 | ⬜ | — |
+| 2026-08-17 | 8.9 | ✅ | `docs: complete system documentation` |
 | — | 8.10 | ⬜ | — |
 
 ---

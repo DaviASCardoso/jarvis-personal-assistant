@@ -21,12 +21,19 @@ src/jarvis/tools/
 ├── router.py     # ToolRouter, ToolRetryPolicy
 ├── access.py     # ToolAccess
 └── adapters/
-    ├── local_backend.py   # fs.read_text, fs.write_text, fs.list_dir, system.info
-    ├── mcp_config.py      # mcp.json, ambiente mínimo do processo filho
-    ├── mcp_protocol.py    # JSON-RPC 2.0, handshake, tradução de schema e resultado
-    ├── mcp_stdio.py       # transporte: subprocesso + thread leitora
-    └── mcp_client.py      # McpToolBackend
+    ├── local_backend.py    # fs.read_text, fs.write_text, fs.list_dir, system.info
+    ├── computer_backend.py # list_processes, focus_window, open_app, close_app, run_command (Fase 8.2)
+    ├── mcp_config.py       # mcp.json, ambiente mínimo do processo filho
+    ├── mcp_protocol.py     # JSON-RPC 2.0, handshake, tradução de schema e resultado
+    ├── mcp_stdio.py        # transporte: subprocesso + thread leitora
+    └── mcp_client.py       # McpToolBackend
 ```
+
+`ComputerToolBackend` (Fase 8.2) é mais um `ToolBackend`, ao lado do local e
+do MCP — nenhum contrato novo, mesmo port. Ver
+[`computer.md`](computer.md) para o que ele expõe e
+[ADR-0031](adr/0031-command-allowlist-execution-model.md) para o modelo de
+allowlist que `open_app`/`run_command` exigem.
 
 Este pacote **não** importa `jarvis.policy` nem `jarvis.skills`. O router assume
 que a chamada já foi autorizada; quem torna essa suposição verdadeira é o

@@ -3,25 +3,29 @@
 Agente pessoal de IA, construído de forma incremental e orientado a eventos,
 contexto e memória.
 
-> **Status:** Fase 7 — Proatividade concluída. O Jarvis registra
+> **Status:** Fase 8 — Integration + Hardening em conclusão. O Jarvis registra
 > acontecimentos como fatos imutáveis, os projeta em um estado atual consultável,
 > lembra (memórias tipadas, com proveniência, validade e ranking explicável),
 > raciocina sobre tudo isso com um LLM atrás de um port vendor-agnóstico e
 > **age**: a decisão passa por um Policy Engine determinístico antes de virar uma
 > Skill executada por ferramentas locais ou por MCP Servers externos, com trilha
 > de auditoria em eventos. **Conversa por voz** e mostra tudo o que está
-> acontecendo num painel local. Agora também **age sozinho, quando autorizado**:
-> um evento publicado durante `jarvis run` pode disparar raciocínio (Trigger
-> Engine) ou automação determinística sem LLM (Conditional Triggers),
-> notificar por console ou voz (Notification Manager, com política de
-> interrupção) e executar tarefas adiadas/repetíveis (Background Task
-> Manager) — tudo atrás de três interruptores de opt-in, desligados por
-> padrão (ver [ADR-0029](docs/adr/0029-proactivity-opt-in-layers.md)).
+> acontecendo num painel local. **Age sozinho, quando autorizado**: um evento
+> publicado durante `jarvis run` pode disparar raciocínio (Trigger Engine) ou
+> automação determinística sem LLM (Conditional Triggers), notificar por
+> console ou voz (Notification Manager, com política de interrupção) e
+> executar tarefas adiadas/repetíveis (Background Task Manager) — tudo atrás
+> de três interruptores de opt-in, desligados por padrão (ver
+> [ADR-0029](docs/adr/0029-proactivity-opt-in-layers.md)).
 >
-> Falta integrar o sistema com o computador e endurecer a confiabilidade
-> (Fase 8): observação de aplicação/janela ativa, uma Computer Skill, um
-> sistema de permissões unificado, avaliação comportamental e testes de
-> falha/recuperação. Planejamento completo em [ROADMAP.md](ROADMAP.md).
+> A Fase 8 acrescentou **observação do computador** (aplicação/janela ativa,
+> CPU/RAM/GPU/rede/ociosidade, processos relevantes — ver
+> [`docs/computer.md`](docs/computer.md)) e uma **Computer Skill** (listar
+> processos, focar janela, abrir/fechar aplicativo, executar comando
+> allowlistado), negada por padrão como qualquer capacidade nova, mais
+> `jarvis audit show` (decisão + trilha de ação numa consulta só),
+> avaliação comportamental e testes de falha/recuperação cobrindo dez
+> cenários de degradação. Planejamento completo em [ROADMAP.md](ROADMAP.md).
 
 ## Requisitos
 
@@ -152,12 +156,16 @@ auditoria no Event Store:
 
 ```bash
 uv run jarvis events list --correlation-id <id>
+uv run jarvis audit show <correlation_id>   # decisão + trilha, numa consulta só
 ```
 
-Ferramentas vêm de dois lugares: um backend **local** (arquivos do workspace e
-informação de sistema) e, opcionalmente, **MCP Servers** externos declarados em
-um `mcp.json`. Detalhes em [`docs/skills.md`](docs/skills.md),
-[`docs/mcp.md`](docs/mcp.md) e [`docs/security.md`](docs/security.md).
+Ferramentas vêm de três lugares: um backend **local** (arquivos do workspace e
+informação de sistema), um backend de **computador** (processos, janelas,
+abrir/fechar aplicativo, comando allowlistado — negado por padrão, ver
+[`docs/computer.md`](docs/computer.md)) e, opcionalmente, **MCP Servers**
+externos declarados em um `mcp.json`. Detalhes em
+[`docs/skills.md`](docs/skills.md), [`docs/mcp.md`](docs/mcp.md) e
+[`docs/security.md`](docs/security.md).
 
 ### Falando com o Jarvis
 
