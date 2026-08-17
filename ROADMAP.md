@@ -1651,6 +1651,121 @@ docs: document goal pursuit and memory-aware proactivity
 
 ---
 
+# FASE 10 — DELIBERATION, MULTI-ACTION & CONTINUITY
+
+> Fase acrescentada depois da Fase 9, mesmo precedente de anotar em vez de
+> reescrever o histórico original (linha 14, e as próprias notas da Fase 9).
+> Escopo definido pelo usuário após revisar o sistema em produção: raciocínio
+> antes de agir, múltiplas ações por pedido, memória mais autônoma no fim de
+> sessão — mais três lacunas levantadas nesta sessão (cegueira ao resultado
+> de leitura, checkpoint/resume do Goal Pursuit Loop). Integrações externas
+> ficam de fora (usuário longe de casa). Plano completo desta sessão, com
+> pesquisa prévia de código citada arquivo:linha em cada subfase.
+
+## 10.1 — Reasoning Field
+
+- [x] `Decision.reasoning: str | None`, obrigatório em `act`/`act_and_notify`
+      via `_REQUIRED`, nunca em `_FORBIDDEN`
+- [x] `SYSTEM_INSTRUCTION`/schema Gemini pedem `reasoning` antes dos demais
+      campos; `JARVIS_LLM_MAX_OUTPUT_TOKENS` 1024→1536
+- [x] `parse_decision` extrai o campo
+- [x] `cli._print_turn` imprime `raciocínio <texto>` quando presente
+- [x] `DecisionRecord`/`decision_event` carregam `reasoning`, mesmo
+      tratamento de privacidade que `message` já tem (nunca em log
+      estruturado)
+- [x] Testes (`test_agent_decision.py`, `test_agent_prompt.py`,
+      `test_agent_privacy.py`, `test_agent_gemini.py`)
+
+**Commit esperado:**
+
+```text
+feat: add reasoning field to agent decisions
+```
+
+---
+
+## 10.2 — Multi-Action por Pedido
+
+- [ ] `_run_agent_loop` extraído em `cli.py`, reaproveitado por `ask`/
+      `chat`/`pursue` — refatoração pura, sem mudança de comportamento
+- [ ] `--max-steps` em `agent ask` e `agent chat` (default 1)
+- [ ] Testes de paridade (refatoração) + testes novos (multi-ação real)
+
+**Commit esperado:**
+
+```text
+feat: allow multiple actions per user request in ask and chat
+```
+
+---
+
+## 10.3 — Reflexão de Fim de Sessão
+
+- [ ] `_reflect_on_session` — turno extra de `runtime.handle` com a
+      `Conversation` completa, reaproveitando `_persist_memory_proposal`
+- [ ] `agent_session_reflection_enabled: bool = True` em `config.py`
+- [ ] Hook em `_agent_chat` (EOF do stdin) e em `_serve_voice`
+      (`on_session(..., started=False)`)
+- [ ] Testes
+
+**Commit esperado:**
+
+```text
+feat: reflect and remember at session end
+```
+
+---
+
+## 10.4 — Resultado de Leitura Deixa de Ser Cego
+
+- [ ] `ReadFileHandler.summary` inclui prévia do conteúdo, capada
+- [ ] Testes (skill + integração via `last_action_result`)
+
+**Commit esperado:**
+
+```text
+feat: let read skills report content, not just byte counts
+```
+
+---
+
+## 10.5 — Checkpoint/Resume do Goal Pursuit Loop
+
+- [ ] Novo pacote `src/jarvis/pursuits/` (`model.py`/`ports.py`/
+      `adapters/sqlite_pursuits.py`), mesmo molde de `jarvis/tasks/` —
+      sétimo banco `data/pursuits.db`, estado operacional apagável (mesma
+      cautela de privacidade do ADR-0014, não Event Store)
+- [ ] `cli._agent_pursue` grava checkpoint a cada passo
+- [ ] `--resume <pursuit_id>` retoma, com orientação adicional opcional
+- [ ] Testes (repositório, checkpoint, resume completo)
+
+**Commit esperado:**
+
+```text
+feat: add checkpoint and resume to the goal pursuit loop
+```
+
+---
+
+## 10.6 — Documentação
+
+- [ ] `docs/agent-runtime.md`, `README.md`
+- [ ] Novo `docs/adr/0033-pursuit-state-as-operational-store.md`
+- [ ] `docs/architecture-contracts.md` — entrada para `jarvis.pursuits`
+- [ ] `ROADMAP.md` fechado subfase a subfase
+
+**Commit esperado:**
+
+```text
+docs: document deliberation, multi-action and continuity
+```
+
+### Fase 10 completa
+
+- [ ] **FASE 10 CONCLUÍDA**
+
+---
+
 # MARCOS PRINCIPAIS
 
 ## M0 — Foundation

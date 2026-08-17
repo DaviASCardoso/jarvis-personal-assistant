@@ -1578,6 +1578,8 @@ def _print_turn(turn: AgentTurn, *, write: MemoryWrite, submitting: bool = False
     decision = turn.decision
     print(f"decision    {decision.type.value}")
     print(f"reason      {decision.reason}")
+    if decision.reasoning is not None:
+        print(f"raciocínio  {decision.reasoning}")
     message = _reply(decision, write)
     if message is not None:
         print(f"message     {message}")
@@ -1689,6 +1691,7 @@ def _record_decision(
         used_memory_ids=turn.used_memory_ids,
         context_as_of=context_as_of,
         action_skill=decision.action.skill if decision.action is not None else None,
+        reasoning=decision.reasoning,
         source=DECISION_SOURCE,
     )
     _build_publisher(store, bus=bus).publish(event)

@@ -140,6 +140,7 @@ def decision_json(
     message: str | None = "tudo certo por aqui",
     memory: Mapping[str, object] | None = None,
     action: Mapping[str, object] | None = None,
+    reasoning: str | None = None,
 ) -> str:
     payload: dict[str, object] = {"type": type, "reason": reason}
     if message is not None:
@@ -148,6 +149,13 @@ def decision_json(
         payload["memory"] = memory
     if action is not None:
         payload["action"] = action
+    # `act`/`act_and_notify` exigem `reasoning` (Fase 10.1) — default aqui
+    # para não obrigar todo teste existente que já monta um `act` a passar
+    # o campo explicitamente.
+    if reasoning is None and type in ("act", "act_and_notify"):
+        reasoning = "avaliei a capacidade disponível e decidi executar"
+    if reasoning is not None:
+        payload["reasoning"] = reasoning
     return json.dumps(payload, ensure_ascii=False)
 
 

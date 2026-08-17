@@ -26,3 +26,4 @@ class DecisionRecord:
     used_memory_ids: tuple[str, ...] = field(default_factory=tuple)
     context_as_of: datetime | None = None
     action_skill: str | None = None
+    reasoning: str | None = None

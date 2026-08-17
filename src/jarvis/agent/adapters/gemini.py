@@ -68,6 +68,12 @@ _MEMORY_TYPE_VALUES: Final = (
 _DECISION_RESPONSE_SCHEMA: Final[dict[str, object]] = {
     "type": "object",
     "properties": {
+        # Primeira propriedade de propósito (Fase 10.1): a ordem do schema
+        # tende a guiar a ordem de geração — deliberar antes de escolher
+        # `type`. Obrigatório em `act`/`act_and_notify` só no Core
+        # (`decision.py`), não aqui: o subconjunto OpenAPI não expressa
+        # "obrigatório condicional ao valor de outro campo".
+        "reasoning": {"type": "string"},
         "type": {"type": "string", "enum": [item.value for item in DecisionType]},
         "reason": {"type": "string"},
         "message": {"type": "string"},

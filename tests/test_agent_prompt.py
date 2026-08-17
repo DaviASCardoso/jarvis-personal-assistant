@@ -71,6 +71,15 @@ def test_the_system_instruction_states_that_the_agent_does_not_execute() -> None
     assert "act_and_notify" in request.system
 
 
+def test_the_system_instruction_asks_for_reasoning_before_acting() -> None:
+    """Fase 10.1: o schema pede deliberação, e a instrução explica quando é
+    obrigatória (act/act_and_notify) e quando é só aceita."""
+    request = PromptBuilder().build(envelope())
+
+    assert '"reasoning"' in request.system
+    assert "act_and_notify" in request.system.split('"reasoning"', 1)[1]
+
+
 def test_a_repair_hint_becomes_a_second_user_message() -> None:
     request = PromptBuilder().build(envelope(), repair_hint="responda só o objeto")
 

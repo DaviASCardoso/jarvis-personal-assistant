@@ -50,6 +50,7 @@ exatamente um objeto JSON — sem cercas de markdown, sem texto antes ou depois.
 Schema da resposta:
 
 {{
+  "reasoning": "sua deliberação passo a passo — obrigatória em act e act_and_notify",
   "type": {" | ".join(f'"{name}"' for name in _DECISION_TYPES)},
   "reason": "uma frase curta explicando a escolha",
   "message": "texto para o usuário — apenas em notify, ask e act_and_notify",
@@ -62,6 +63,12 @@ Schema da resposta:
   }},
   "action": {{ "skill": "slug-da-skill", "parameters": {{}} }}
 }}
+
+Preencha `reasoning` **antes** de decidir o resto, mesmo quando opcional:
+pense por escrito — o que o evento/pedido exige, quais capacidades se
+aplicam, o que pode dar errado — e só então escolha `type`. Em `act`/
+`act_and_notify` isso é obrigatório porque é ali que uma decisão errada tem
+efeito no mundo; nos demais tipos é aceito mas não exigido.
 
 Quando usar cada tipo:
 

@@ -40,6 +40,7 @@ def decision_event(
     used_memory_ids: Sequence[str] = (),
     context_as_of: datetime | None = None,
     action_skill: str | None = None,
+    reasoning: str | None = None,
     source: str,
 ) -> Event:
     payload: dict[str, JsonValue] = {
@@ -57,6 +58,8 @@ def decision_event(
         payload["context_as_of"] = context_as_of.astimezone(UTC).isoformat()
     if action_skill is not None:
         payload["action_skill"] = action_skill
+    if reasoning is not None:
+        payload["reasoning"] = reasoning
 
     return Event(
         event_id=deterministic_event_id(source=source, natural_key=decision_id),
@@ -134,4 +137,5 @@ def read_decision(recorded: RecordedEvent) -> DecisionRecord | None:
         used_memory_ids=tuple(raw_memory_ids),
         context_as_of=context_as_of,
         action_skill=_optional_str(payload, "action_skill"),
+        reasoning=_optional_str(payload, "reasoning"),
     )

@@ -120,6 +120,7 @@ class TestLlmCannotReachATool:
             decided_at=datetime.now(UTC),
             correlation_id="corr-1",
             action=ActionProposal(skill="test.skill", parameters={"text": "oi"}),
+            reasoning="a skill test.skill resolve o pedido diretamente",
         )
 
         forbidden = {"execute", "run", "perform", "invoke", "call", "apply"}

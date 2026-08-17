@@ -145,6 +145,17 @@ def test_a_normal_turn_logs_identity_not_content(caplog: pytest.LogCaptureFixtur
     assert_nothing_leaked(caplog)
 
 
+def test_reasoning_never_reaches_the_log(caplog: pytest.LogCaptureFixture) -> None:
+    """Fase 10.1: `reasoning` recebe o mesmo tratamento que `message` — pode
+    ir ao provider e ao Decision Log, nunca ao log estruturado."""
+    llm = StubLLMProvider([decision_json(type="notify", message="ok", reasoning=SECRET_CONTENT)])
+
+    build(llm).handle(make_user_message(text="oi"))
+
+    assert "agent.decided" in caplog.text
+    assert_nothing_leaked(caplog)
+
+
 def test_an_event_payload_never_reaches_the_log(caplog: pytest.LogCaptureFixture) -> None:
     llm = StubLLMProvider()
     trigger = make_event_trigger(payload={"detail": SECRET_PAYLOAD})

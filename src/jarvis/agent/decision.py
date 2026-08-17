@@ -38,6 +38,9 @@ MAX_REASON_LENGTH: Final = 500
 MAX_MESSAGE_LENGTH: Final = 2000
 MAX_CONTENT_LENGTH: Final = 2000
 MAX_SKILL_LENGTH: Final = 64
+# Fase 10.1: deliberação passo a passo, mais longa que `reason` (um rótulo
+# curto) — mas ainda limitada, para não virar um segundo `message` disfarçado.
+MAX_REASONING_LENGTH: Final = 1500
 
 _SLUG_PATTERN: Final = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 _FENCE_PATTERN: Final = re.compile(r"^\s*```(?:json)?\s*(?P<body>.*?)\s*```\s*$", re.DOTALL)
@@ -55,13 +58,17 @@ class DecisionType(StrEnum):
 # Matriz de validação: por tipo, o que precisa existir e o que não pode existir.
 # Tabela em vez de cadeia de `if`s porque é ela que o teste percorre — uma
 # variante nova sem entrada aqui quebra o teste, não passa despercebida.
+#
+# `reasoning` (Fase 10.1) é obrigatório só em `act`/`act_and_notify` — é ali
+# que "pensar antes de agir" importa de verdade. Nos demais tipos ele é
+# aceito, mas nunca exigido nem proibido (não aparece em `_FORBIDDEN`).
 _REQUIRED: Final[Mapping[DecisionType, frozenset[str]]] = {
     DecisionType.IGNORE: frozenset(),
     DecisionType.REMEMBER: frozenset({"memory"}),
     DecisionType.NOTIFY: frozenset({"message"}),
     DecisionType.ASK: frozenset({"message"}),
-    DecisionType.ACT: frozenset({"action"}),
-    DecisionType.ACT_AND_NOTIFY: frozenset({"action", "message"}),
+    DecisionType.ACT: frozenset({"action", "reasoning"}),
+    DecisionType.ACT_AND_NOTIFY: frozenset({"action", "message", "reasoning"}),
 }
 
 _FORBIDDEN: Final[Mapping[DecisionType, frozenset[str]]] = {
@@ -211,6 +218,7 @@ class Decision:
     message: str | None = None
     memory: MemoryProposal | None = None
     action: ActionProposal | None = None
+    reasoning: str | None = None
 
     def __post_init__(self) -> None:
         overwrite = object.__setattr__
@@ -242,6 +250,14 @@ class Decision:
                 "message",
                 _require_text(self.message, field_name="message", max_length=MAX_MESSAGE_LENGTH),
             )
+        if self.reasoning is not None:
+            overwrite(
+                self,
+                "reasoning",
+                _require_text(
+                    self.reasoning, field_name="reasoning", max_length=MAX_REASONING_LENGTH
+                ),
+            )
         if self.decided_at.utcoffset() is None:
             raise InvalidDecisionError("decided_at precisa ser timezone-aware")
         overwrite(self, "decided_at", self.decided_at.astimezone(UTC))
@@ -250,7 +266,9 @@ class Decision:
 
     def _check_shape(self) -> None:
         present = {
-            name for name in ("message", "memory", "action") if getattr(self, name) is not None
+            name
+            for name in ("message", "memory", "action", "reasoning")
+            if getattr(self, name) is not None
         }
         missing = _REQUIRED[self.type] - present
         if missing:
@@ -368,6 +386,7 @@ def parse_decision(
     memory_raw = _optional_mapping(payload, "memory")
     action_raw = _optional_mapping(payload, "action")
     message = payload.get("message")
+    reasoning = payload.get("reasoning")
 
     return Decision(
         decision_id=decision_id,
@@ -383,4 +402,7 @@ def parse_decision(
         else _require_text(message, field_name="message", max_length=MAX_MESSAGE_LENGTH),
         memory=None if memory_raw is None else _memory_proposal(memory_raw),
         action=None if action_raw is None else _action_proposal(action_raw),
+        reasoning=None
+        if reasoning is None
+        else _require_text(reasoning, field_name="reasoning", max_length=MAX_REASONING_LENGTH),
     )

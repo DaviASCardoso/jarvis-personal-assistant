@@ -24,6 +24,7 @@ NOW = datetime(2026, 8, 12, 12, 0, tzinfo=UTC)
 
 MEMORY = MemoryProposal(type=MemoryType.PREFERENCE, content="prefere café sem açúcar")
 ACTION = ActionProposal(skill="send_notification", parameters={"message": "pronto"})
+REASONING = "a capacidade send_notification está disponível e resolve o pedido"
 
 
 def make(**overrides: object) -> Decision:
@@ -48,8 +49,11 @@ def make(**overrides: object) -> Decision:
         (DecisionType.REMEMBER, {"memory": MEMORY}),
         (DecisionType.NOTIFY, {"message": "olá"}),
         (DecisionType.ASK, {"message": "qual horário?"}),
-        (DecisionType.ACT, {"action": ACTION}),
-        (DecisionType.ACT_AND_NOTIFY, {"action": ACTION, "message": "feito"}),
+        (DecisionType.ACT, {"action": ACTION, "reasoning": REASONING}),
+        (
+            DecisionType.ACT_AND_NOTIFY,
+            {"action": ACTION, "message": "feito", "reasoning": REASONING},
+        ),
     ],
     ids=lambda value: value.value if isinstance(value, DecisionType) else "",
 )
@@ -76,7 +80,9 @@ def test_every_decision_type_appears_in_the_validation_matrix() -> None:
         (DecisionType.NOTIFY, {}),
         (DecisionType.ASK, {}),
         (DecisionType.ACT, {}),
+        (DecisionType.ACT, {"action": ACTION}),
         (DecisionType.ACT_AND_NOTIFY, {"action": ACTION}),
+        (DecisionType.ACT_AND_NOTIFY, {"action": ACTION, "message": "feito"}),
     ],
 )
 def test_a_variant_without_its_required_field_is_refused(
@@ -93,7 +99,7 @@ def test_a_variant_without_its_required_field_is_refused(
         (DecisionType.IGNORE, {"action": ACTION}),
         (DecisionType.REMEMBER, {"memory": MEMORY, "action": ACTION}),
         (DecisionType.NOTIFY, {"message": "olá", "action": ACTION}),
-        (DecisionType.ACT, {"action": ACTION, "message": "olá"}),
+        (DecisionType.ACT, {"action": ACTION, "message": "olá", "reasoning": REASONING}),
     ],
 )
 def test_a_variant_with_a_forbidden_field_is_refused(
@@ -104,8 +110,10 @@ def test_a_variant_with_a_forbidden_field_is_refused(
 
 
 def test_only_act_variants_propose_action() -> None:
-    assert make(type=DecisionType.ACT, action=ACTION).proposes_action
-    assert make(type=DecisionType.ACT_AND_NOTIFY, action=ACTION, message="x").proposes_action
+    assert make(type=DecisionType.ACT, action=ACTION, reasoning=REASONING).proposes_action
+    assert make(
+        type=DecisionType.ACT_AND_NOTIFY, action=ACTION, message="x", reasoning=REASONING
+    ).proposes_action
     assert not make().proposes_action
     assert not make(type=DecisionType.NOTIFY, message="x").proposes_action
 
@@ -119,7 +127,7 @@ def test_a_decision_carries_no_executable_behaviour() -> None:
     Se algum dia alguém acrescentar `execute()`, um callback ou um campo
     `Callable`, este teste quebra antes de a Fase 5 existir.
     """
-    decision = make(type=DecisionType.ACT, action=ACTION)
+    decision = make(type=DecisionType.ACT, action=ACTION, reasoning=REASONING)
 
     public_callables = [
         name
@@ -128,7 +136,7 @@ def test_a_decision_carries_no_executable_behaviour() -> None:
     ]
     assert public_callables == []
 
-    for value in (decision.action, decision.memory, decision.message):
+    for value in (decision.action, decision.memory, decision.message, decision.reasoning):
         assert not callable(value)
 
 
@@ -155,6 +163,17 @@ def test_reason_is_always_required() -> None:
 def test_an_overlong_message_is_refused() -> None:
     with pytest.raises(InvalidDecisionError, match="excede"):
         make(type=DecisionType.NOTIFY, message="x" * 5000)
+
+
+def test_an_overlong_reasoning_is_refused() -> None:
+    with pytest.raises(InvalidDecisionError, match="excede"):
+        make(type=DecisionType.ACT, action=ACTION, reasoning="x" * 5000)
+
+
+def test_reasoning_is_optional_outside_act_variants() -> None:
+    decision = make(type=DecisionType.NOTIFY, message="oi")
+
+    assert decision.reasoning is None
 
 
 def test_a_skill_name_must_be_a_slug() -> None:
@@ -229,6 +248,7 @@ def test_parsing_a_full_action_decision() -> None:
                 "reason": "o usuário pediu",
                 "message": "vou avisar",
                 "action": {"skill": "send_notification", "parameters": {"to": "davi"}},
+                "reasoning": "a capacidade send_notification atende o pedido diretamente",
             }
         )
     )
@@ -236,6 +256,7 @@ def test_parsing_a_full_action_decision() -> None:
     assert decision.action is not None
     assert decision.action.skill == "send_notification"
     assert dict(decision.action.parameters) == {"to": "davi"}
+    assert decision.reasoning == "a capacidade send_notification atende o pedido diretamente"
 
 
 def test_parsing_a_memory_decision() -> None:
@@ -269,6 +290,10 @@ def test_parsing_a_memory_decision() -> None:
         ('{"type": "notify", "reason": "sem mensagem"}', "falta campo exigido"),
         ('{"type": "ignore"}', "sem reason"),
         ('{"type": "act", "reason": "x", "action": {"parameters": {}}}', "action sem skill"),
+        (
+            '{"type": "act", "reason": "x", "action": {"skill": "s", "parameters": {}}}',
+            "act sem reasoning",
+        ),
         ('{"type": "remember", "reason": "x", "memory": {"content": "y"}}', "memory sem type"),
     ],
 )

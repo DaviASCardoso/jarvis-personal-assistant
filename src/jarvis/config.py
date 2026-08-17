@@ -41,7 +41,10 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None
     gemini_model: str = "gemini-3.6-flash"
     llm_timeout_seconds: float = 30.0
-    llm_max_output_tokens: int = 1024
+    # Fase 10.1: subiu de 1024 para acomodar o campo `reasoning` (deliberação
+    # passo a passo, obrigatória em `act`/`act_and_notify`) sem apertar o
+    # orçamento que já existia para `message`/`action.parameters`.
+    llm_max_output_tokens: int = 1536
     llm_temperature: float = 0.2
     # Duas tentativas, não cinco: a quota gratuita é escassa, e insistir num
     # provider indisponível gasta o que resta dela sem melhorar a resposta.
