@@ -1388,16 +1388,16 @@ test: add agent behavioral evaluation suite
 
 Testar:
 
-- [ ] LLM indisponível
-- [ ] Banco indisponível
-- [ ] MCP indisponível
-- [ ] Timeout
-- [ ] Evento duplicado
-- [ ] Evento fora de ordem
-- [ ] Contexto desatualizado
-- [ ] Tool failure
-- [ ] Processo reiniciado
-- [ ] Recuperação após crash
+- [x] LLM indisponível
+- [x] Banco indisponível
+- [x] MCP indisponível
+- [x] Timeout
+- [x] Evento duplicado
+- [x] Evento fora de ordem
+- [x] Contexto desatualizado
+- [x] Tool failure
+- [x] Processo reiniciado
+- [x] Recuperação após crash
 
 **Commit esperado:**
 
@@ -1913,7 +1913,7 @@ TTS
 | 2026-08-17 | 8.3 | ✅ | `feat: implement permission system` |
 | 2026-08-17 | 8.4 | ✅ | `feat: implement audit logging` |
 | 2026-08-17 | 8.5 | ✅ | `test: add agent behavioral evaluation suite` |
-| — | 8.6 | ⬜ | — |
+| 2026-08-17 | 8.6 | ✅ | `test: add failure and recovery scenarios` |
 | — | 8.7 | ⬜ | — |
 | — | 8.8 | ⬜ | — |
 | — | 8.9 | ⬜ | — |
