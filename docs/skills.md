@@ -16,7 +16,9 @@ src/jarvis/skills/
 ├── skill.py      # SkillDescriptor, SkillInvocation, SkillOutput, SkillHandler, Skill
 ├── registry.py   # SkillRegistry
 ├── errors.py     # SkillError, SkillInputError, SkillExecutionError, UnknownSkillError
-└── builtin/      # system.status, file.read, file.list, file.write
+└── builtin/      # system.status, file.read, file.list, file.write,
+                  # computer.list_processes, computer.focus_window,
+                  # computer.open_app, computer.close_app, computer.run_command
 ```
 
 Este pacote **não** importa `jarvis.policy.engine`, `jarvis.agent` nem
@@ -116,7 +118,11 @@ Uma delas afrouxada por engano não abre o caminho inteiro.
 Registro **explícito**, feito pelo composition root (`register_builtin_skills`).
 Não há varredura de módulos nem entry points: descobrir capacidades importando
 código arbitrário é superfície de ataque e efeito colateral em import, e nada
-disso se paga com quatro Skills.
+disso se paga com nove Skills. As cinco de computador (Fase 8.2, ver
+[`docs/computer.md`](computer.md)) seguem o mesmo desenho: `risk`/`effects`
+sobem até `HIGH`/`DESTRUCTIVE` para `computer.close_app`/`computer.run_command`,
+e nenhuma das cinco capacidades novas (`computer:read`/`open`/`close`/`run`)
+entra na allowlist default de `JARVIS_POLICY_GRANTED_CAPABILITIES`.
 
 O registry serve às duas pontas da mesma garantia (`PHASE-5.md §26`): decide o
 que o modelo **vê** (a lista de capacidades no envelope) e o que o executor

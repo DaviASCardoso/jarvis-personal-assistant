@@ -723,7 +723,17 @@ class TestAgent:
         assert envelope["trigger"]["text"] == "oi"
         assert envelope["constraints"]["capabilities_available"] is True
         offered = {item["name"] for item in envelope["available_capabilities"]}
-        assert offered == {"system.status", "file.read", "file.list", "file.write"}
+        assert offered == {
+            "system.status",
+            "file.read",
+            "file.list",
+            "file.write",
+            "computer.list_processes",
+            "computer.focus_window",
+            "computer.open_app",
+            "computer.close_app",
+            "computer.run_command",
+        }
         # O schema viaja junto: sem ele o modelo acerta o nome e erra os campos.
         by_name = {item["name"]: item for item in envelope["available_capabilities"]}
         assert "path" in by_name["file.read"]["parameters"]

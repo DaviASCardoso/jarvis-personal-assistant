@@ -1308,15 +1308,15 @@ feat: implement computer context providers
 
 ## 8.2 — Computer Skill
 
-- [ ] Abrir aplicação
-- [ ] Fechar aplicação
-- [ ] Focar janela
-- [ ] Interagir com interface
-- [ ] Ler tela quando apropriado
-- [ ] Executar comandos seguros
-- [ ] Implementar permissões
-- [ ] Implementar confirmação
-- [ ] Criar testes
+- [x] Abrir aplicação (`computer.open_app`, só a partir de uma allowlist — ver ADR-0031)
+- [x] Fechar aplicação (`computer.close_app`)
+- [x] Focar janela (`computer.focus_window`)
+- [x] Interagir com interface (escopo restrito a foco/listagem de janela, não automação de mouse/teclado — decisão de escopo documentada em `docs/phase-8-plan.md`)
+- [x] Ler tela quando apropriado (escopo restrito à identidade da janela ativa, já entregue por 8.1, não captura de pixels/OCR)
+- [x] Executar comandos seguros (`computer.run_command`, allowlist de argv — ADR-0031)
+- [x] Implementar permissões (capacidades `computer:read/open/close/run`, negadas por padrão — testado em 8.3)
+- [x] Implementar confirmação (`ConfirmationRequirement` declarado por Skill — testado em 8.3)
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -1909,7 +1909,7 @@ TTS
 | 2026-08-17 | 7.6 | ✅ | `feat: implement conditional triggers` (integração de memória fora de escopo — ver 7.6) |
 | 2026-08-17 | 7.7 | ✅ | `feat: enable proactive agent behavior` |
 | 2026-08-17 | 8.1 | ✅ | `feat: implement computer context providers` |
-| — | 8.2 | ⬜ | — |
+| 2026-08-17 | 8.2 | ✅ | `feat: implement computer skill` |
 | — | 8.3 | ⬜ | — |
 | — | 8.4 | ⬜ | — |
 | — | 8.5 | ⬜ | — |

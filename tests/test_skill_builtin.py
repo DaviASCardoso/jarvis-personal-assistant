@@ -61,7 +61,7 @@ def by_name(name: str) -> Skill:
 
 
 class TestCatalog:
-    def test_the_four_skills_are_registered(self) -> None:
+    def test_the_nine_skills_are_registered(self) -> None:
         registry = register_builtin_skills(SkillRegistry())
 
         assert set(registry.names()) == {
@@ -69,6 +69,11 @@ class TestCatalog:
             "file.read",
             "file.list",
             "file.write",
+            "computer.list_processes",
+            "computer.focus_window",
+            "computer.open_app",
+            "computer.close_app",
+            "computer.run_command",
         }
 
     def test_reading_is_low_risk_and_never_asks(self) -> None:
@@ -90,7 +95,9 @@ class TestCatalog:
     def test_every_skill_declares_exactly_the_tools_it_uses(self) -> None:
         for skill in builtin_skills():
             assert skill.descriptor.required_tools
-            assert all(item.startswith("local:") for item in skill.descriptor.required_tools)
+            assert all(
+                item.startswith(("local:", "computer:")) for item in skill.descriptor.required_tools
+            )
 
     def test_no_skill_is_a_generic_do_anything(self) -> None:
         """`PHASE-5.md §33`: nada de `execute_anything`."""

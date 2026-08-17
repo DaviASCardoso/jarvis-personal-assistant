@@ -158,6 +158,7 @@ from jarvis.tools import (
     ToolRetryPolicy,
     ToolRouter,
 )
+from jarvis.tools.adapters.computer_backend import ComputerToolBackend, load_command_allowlist
 from jarvis.tools.adapters.local_backend import LocalToolBackend
 from jarvis.tools.adapters.mcp_client import McpToolBackend
 from jarvis.tools.adapters.mcp_config import load_mcp_config
@@ -357,7 +358,8 @@ def build_skill_registry() -> SkillRegistry:
 
 
 def build_tool_registry(settings: Settings) -> ToolRegistry:
-    """Backend local sempre; MCP Servers só se houver `mcp.json`.
+    """Backends locais (`file`/`system` e `computer`) sempre; MCP Servers só se
+    houver `mcp.json`.
 
     A descoberta acontece aqui, na borda. Um servidor indisponível não derruba o
     processo — vira um backend degradado, visível em `jarvis tools list`, e as
@@ -366,6 +368,12 @@ def build_tool_registry(settings: Settings) -> ToolRegistry:
     """
     registry = ToolRegistry()
     registry.register_backend(LocalToolBackend(root=settings.file_skill_root))
+    command_allowlist = (
+        load_command_allowlist(settings.computer_command_allowlist_path)
+        if settings.computer_command_allowlist_path is not None
+        else {}
+    )
+    registry.register_backend(ComputerToolBackend(command_allowlist=command_allowlist))
     if settings.mcp_config_path is not None:
         for spec in load_mcp_config(settings.mcp_config_path):
             if spec.enabled:

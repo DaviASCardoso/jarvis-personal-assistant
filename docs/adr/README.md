@@ -94,3 +94,4 @@ original fazia sentido no momento em que foi tomada.
 | [0028](0028-console-channel-for-desktop-notifications.md) | Canal de console como primeiro canal de notificação | Accepted |
 | [0029](0029-proactivity-opt-in-layers.md) | Autonomia real em três interruptores independentes; automação condicional sem LLM | Accepted |
 | [0030](0030-psutil-as-a-normal-dependency.md) | `psutil` como dependência normal, não extra opcional | Accepted |
+| [0031](0031-command-allowlist-execution-model.md) | `computer.open_app`/`computer.run_command`: só argv de uma allowlist, nunca comando livre | Accepted |
