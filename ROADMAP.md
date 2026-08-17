@@ -1173,12 +1173,12 @@ feat: implement interruption policy
 
 ## 7.3 — Notification Manager
 
-- [ ] Criar Notification Manager
-- [ ] Implementar desktop notification
-- [ ] Implementar voice notification
-- [ ] Implementar silent mode
-- [ ] Implementar prioridade
-- [ ] Criar testes
+- [x] Criar Notification Manager
+- [x] Implementar desktop notification — canal console/log estruturado nesta fase, não um toast nativo do SO; decisão registrada em ADR-0028
+- [x] Implementar voice notification — via `TextToSpeech`/`AudioSink` já existentes (Fase 6), só fala quando `can_speak_now()`
+- [x] Implementar silent mode — suprime tudo abaixo de `URGENT`
+- [x] Implementar prioridade — `NotificationPriority` (`low`/`normal`/`high`/`urgent`)
+- [x] Criar testes
 
 **Commit esperado:**
 
@@ -1893,7 +1893,7 @@ TTS
 | 2026-08-14 | 6.8 | ✅ | `feat: serve voice and panel from one process` (subfase acrescentada — ver 6.8) |
 | 2026-08-17 | 7.1 | ✅ | `feat: implement event trigger engine` |
 | 2026-08-17 | 7.2 | ✅ | `feat: implement interruption policy` |
-| — | 7.3 | ⬜ | — |
+| 2026-08-17 | 7.3 | ✅ | `feat: implement notification manager` |
 | — | 7.4 | ⬜ | — |
 | — | 7.5 | ⬜ | — |
 | — | 7.6 | ⬜ | — |

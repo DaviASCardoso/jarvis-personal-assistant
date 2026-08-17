@@ -274,6 +274,18 @@ código deve rejeitar qualquer import que a viole.
 - **Dependências permitidas:** Domain (`Notification`), ports de canal.
 - **Dependências proibidas:** Agent Runtime, Memory, lógica de negócio de
   Policy.
+
+> **Implementado na Fase 7 (subfase 7.3)**, com uma dependência a mais que
+> este contrato original não previa: `jarvis.notify` depende de
+> `jarvis.proactivity` para a `InterruptionPolicy` (decide *quando*
+> interromper) — o "quando" não é responsabilidade do Notification System,
+> mas de um componente irmão dedicado (7.2), reaproveitado em vez de
+> duplicado. O canal "desktop" desta fase é console/log estruturado, não um
+> toast nativo do SO — decisão registrada em
+> [ADR-0028](adr/0028-console-channel-for-desktop-notifications.md). O uso
+> para pedidos de confirmação do Policy Engine, mencionado acima, **não** foi
+> retrofitado nesta subfase (o fluxo de confirmação da Fase 5 continua como
+> está); fica como trabalho futuro explícito, não como lacuna silenciosa.
 - **Responsável:** Notification System.
 
 ### 3.11 Action Execution
@@ -696,6 +708,9 @@ consequências completas:
   leitor de snapshot, somente leitura (Fase 6).
 - [ADR-0025](adr/0025-voice-transcripts-as-operational-state.md) — Transcrição
   como estado operacional, nunca como evento (Fase 6).
+- [ADR-0028](adr/0028-console-channel-for-desktop-notifications.md) — Canal
+  "desktop" do Notification Manager é console/log, não um toast nativo do SO
+  (Fase 7).
 
 Decisões de campo-a-campo (schema exato de Event/Context/Memory, nomes
 exatos da taxonomia de erro) **não** viram ADR — são detalhe de contrato,
