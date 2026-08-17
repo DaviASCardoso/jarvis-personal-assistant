@@ -1367,14 +1367,14 @@ feat: implement audit logging
 
 Criar cenários de avaliação:
 
-- [ ] Email importante durante período de foco
-- [ ] Email irrelevante
-- [ ] Reunião próxima
-- [ ] Solicitação para enviar email
-- [ ] Falha de ferramenta
-- [ ] Memórias contraditórias
-- [ ] Mudança de preferência
-- [ ] Situação em que o agente deve permanecer em silêncio
+- [x] Email importante durante período de foco
+- [x] Email irrelevante
+- [x] Reunião próxima
+- [x] Solicitação para enviar email (adaptação fiel: nenhuma Skill de e-mail existe em nenhuma fase — o cenário fiel é o modelo propor uma Skill inexistente e o `ActionExecutor` negar, não fingir sucesso)
+- [x] Falha de ferramenta
+- [x] Memórias contraditórias
+- [x] Mudança de preferência
+- [x] Situação em que o agente deve permanecer em silêncio
 
 **Commit esperado:**
 
@@ -1912,7 +1912,7 @@ TTS
 | 2026-08-17 | 8.2 | ✅ | `feat: implement computer skill` |
 | 2026-08-17 | 8.3 | ✅ | `feat: implement permission system` |
 | 2026-08-17 | 8.4 | ✅ | `feat: implement audit logging` |
-| — | 8.5 | ⬜ | — |
+| 2026-08-17 | 8.5 | ✅ | `test: add agent behavioral evaluation suite` |
 | — | 8.6 | ⬜ | — |
 | — | 8.7 | ⬜ | — |
 | — | 8.8 | ⬜ | — |
