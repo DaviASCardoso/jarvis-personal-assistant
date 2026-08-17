@@ -376,6 +376,26 @@ código deve rejeitar qualquer import que a viole.
   agora observa e registra o que ele decidiu.
 - **Responsável:** Decision Log.
 
+### 3.16 Background Task Manager
+
+> Acrescentado na Fase 7 (subfase 7.5). Ver
+> [ADR-0027](adr/0027-background-tasks-ticked-not-scheduled.md).
+
+- **Responsabilidade:** modelar e conduzir a execução adiada/repetível de uma
+  `ActionRequest` — estado, retry com backoff, cancelamento.
+- **Permitido conhecer:** Domain próprio (`BackgroundTask`, `TaskStatus`),
+  `jarvis.execution` (para acionar `ActionExecutor` — ADR-0016 já nomeia esta
+  subfase como um dos chamadores previstos).
+- **Proibido conhecer:** `jarvis.skills`, `jarvis.tools`, `jarvis.policy`
+  diretamente (só através de `jarvis.execution`); `jarvis.agent`.
+- **Entradas:** `ActionRequest`, submetida por quem chama `TaskManager.submit`.
+- **Saídas:** `BackgroundTask` com seu estado atual.
+- **Regra crítica:** nenhuma thread/timer próprio. `run_due` é ticado a partir
+  de pontos que já existem no sistema (nunca agendado por si mesmo) — a
+  mesma disciplina de concorrência do ADR-0008/ADR-0023, não uma exceção a
+  ela.
+- **Responsável:** Background Task Manager.
+
 ---
 
 ## 4. LLM Independence
@@ -735,6 +755,8 @@ consequências completas:
 - [ADR-0026](adr/0026-decision-log-as-events-built-from-primitives.md) —
   Decision log como eventos, construído a partir de primitivos, sem
   dependência de `jarvis.agent` (Fase 7).
+- [ADR-0027](adr/0027-background-tasks-ticked-not-scheduled.md) — Background
+  tasks ticadas de pontos existentes, nunca agendadas (Fase 7).
 - [ADR-0028](adr/0028-console-channel-for-desktop-notifications.md) — Canal
   "desktop" do Notification Manager é console/log, não um toast nativo do SO
   (Fase 7).

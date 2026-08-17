@@ -1208,13 +1208,18 @@ feat: implement agent decision logging
 
 ## 7.5 — Background Task Manager
 
-- [ ] Criar Task Manager
-- [ ] Criar estados de tarefa
-- [ ] Executar tarefas em background
-- [ ] Implementar retry
-- [ ] Implementar cancelamento
-- [ ] Implementar falhas
-- [ ] Criar testes
+- [x] Criar Task Manager
+- [x] Criar estados de tarefa — `pending`/`running`/`retrying`/`succeeded`/`failed`/`cancelled`
+- [x] Executar tarefas em background — aciona `ActionExecutor` (ADR-0016), nunca reimplementa a cadeia
+- [x] Implementar retry — backoff exponencial configurável, até `max_attempts`
+- [x] Implementar cancelamento — só de tarefas não terminais
+- [x] Implementar falhas — negação de política/confirmação pendente falha direto (não é transitório); falha de execução tenta de novo até o teto
+- [x] Criar testes
+
+Concorrência: nenhuma thread/timer novo — `run_due` é ticado de pontos que já
+existem (`jarvis tasks run-due`, início de `jarvis run`, cada ciclo do
+painel), ver ADR-0027. O wiring desses pontos de tick no composition root é
+da subfase 7.7 ("Integrar tasks").
 
 **Commit esperado:**
 
@@ -1895,7 +1900,7 @@ TTS
 | 2026-08-17 | 7.2 | ✅ | `feat: implement interruption policy` |
 | 2026-08-17 | 7.3 | ✅ | `feat: implement notification manager` |
 | 2026-08-17 | 7.4 | ✅ | `feat: implement agent decision logging` |
-| — | 7.5 | ⬜ | — |
+| 2026-08-17 | 7.5 | ✅ | `feat: implement background task manager` |
 | — | 7.6 | ⬜ | — |
 | — | 7.7 | ⬜ | — |
 | — | 8.1 | ⬜ | — |
