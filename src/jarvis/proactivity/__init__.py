@@ -18,6 +18,8 @@ from jarvis.proactivity.conditions import (
     context_equals,
     context_present,
     evaluate_condition,
+    memory_equals,
+    memory_present,
     not_,
     or_,
     payload_equals,
@@ -34,6 +36,7 @@ from jarvis.proactivity.interruption import (
     InterruptionSettings,
     RecentNotification,
 )
+from jarvis.proactivity.ports import MemoryPresence
 from jarvis.proactivity.triggers import TriggerEngine, TriggerEventConsumer, TriggerRule
 
 __all__ = [
@@ -49,6 +52,7 @@ __all__ = [
     "InterruptionSettings",
     "InvalidConditionError",
     "InvalidTriggerRuleError",
+    "MemoryPresence",
     "ProactivityError",
     "RecentNotification",
     "TriggerEngine",
@@ -59,6 +63,8 @@ __all__ = [
     "context_equals",
     "context_present",
     "evaluate_condition",
+    "memory_equals",
+    "memory_present",
     "not_",
     "or_",
     "payload_equals",

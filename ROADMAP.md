@@ -1559,15 +1559,18 @@ feat: implement goal pursuit loop
 
 ## 9.3 — Memory-Aware Conditional Triggers
 
-- [ ] Novo ADR documentando a extensão pontual Proactivity↔Memory (leitura,
-      unidirecional, só via bridge adapter)
-- [ ] Atualizar `architecture-contracts.md §3.17` (remove `jarvis.memory` da
+- [x] Novo ADR documentando a extensão pontual Proactivity↔Memory (leitura,
+      unidirecional, só via bridge adapter) — ADR-0032
+- [x] Atualizar `architecture-contracts.md §3.17` (remove `jarvis.memory` da
       lista "proibido conhecer", documenta o bridge)
-- [ ] `proactivity/adapters/memory_bridge.py`, no molde de
+- [x] `proactivity/adapters/memory_bridge.py`, no molde de
       `memory/adapters/context_bridge.py`
-- [ ] `ConditionOp` ganha `memory_present`/`memory_equals`
-- [ ] `rules_config.py` aceita o novo operador
-- [ ] Criar testes
+- [x] `ConditionOp` ganha `memory_present`/`memory_equals`
+- [x] `rules_config.py` aceita o novo operador
+- [x] Criar testes (`tests/test_proactivity_conditions.py`,
+      `tests/test_proactivity_rules_config.py`,
+      `tests/test_proactivity_memory_bridge.py`,
+      `tests/test_proactivity_architecture.py` atualizado)
 
 **Commit esperado:**
 
@@ -1783,7 +1786,7 @@ O sistema consegue decidir quando deve falar e agir.
 ```text
 [x] Action Outcome Feedback
 [x] Goal Pursuit Loop
-[ ] Memory-Aware Conditional Triggers
+[x] Memory-Aware Conditional Triggers
 [ ] Proactivity + Reasoning Integration
 [ ] Documentation
 ```
@@ -2074,6 +2077,7 @@ TTS
 | 2026-08-17 | 9.0 | ✅ | `chore: close out phase 8 completion tracking` |
 | 2026-08-17 | 9.1 | ✅ | `feat: close action outcome feedback loop` |
 | 2026-08-17 | 9.2 | ✅ | `feat: implement goal pursuit loop` |
+| 2026-08-17 | 9.3 | ✅ | `feat: add memory-aware conditional triggers` |
 
 ---
 

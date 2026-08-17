@@ -114,6 +114,29 @@ def test_unknown_operator_raises(tmp_path: Path) -> None:
         load_conditional_rules(path)
 
 
+def test_loads_a_memory_present_condition(tmp_path: Path) -> None:
+    """Fase 9.3: `subject` é o campo próprio de `memory_present`/`memory_equals`."""
+    path = tmp_path / "rules.json"
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "rule_id": "quiet_hours",
+                    "when": ["notification.candidate"],
+                    "condition": {"op": "memory_present", "subject": "quiet_hours_preference"},
+                    "then": {"skill": "test.skill"},
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    rules = load_conditional_rules(path)
+
+    assert rules[0].condition.op is ConditionOp.MEMORY_PRESENT
+    assert rules[0].condition.subject == "quiet_hours_preference"
+
+
 def test_missing_then_skill_raises(tmp_path: Path) -> None:
     path = tmp_path / "rules.json"
     path.write_text(

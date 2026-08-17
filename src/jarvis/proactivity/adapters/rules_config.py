@@ -16,6 +16,11 @@ Formato:
   }
 ]
 ```
+
+`memory_present`/`memory_equals` (Fase 9.3) usam `subject` em vez de `field`
+ou `key` — ex. `{"op": "memory_present", "subject": "quiet_hours_preference"}`
+— e só casam quando o composition root injeta um `MemoryPresence` (ver
+`proactivity/adapters/memory_bridge.py`); sem ele, nunca casam.
 """
 
 import json
@@ -84,10 +89,12 @@ def _condition_from(raw: Mapping[str, object], *, source: Path) -> Condition:
 
     field_name = raw.get("field")
     key = raw.get("key")
+    subject = raw.get("subject")
     return Condition(
         op=op,
         field=field_name if isinstance(field_name, str) else None,
         key=key if isinstance(key, str) else None,
+        subject=subject if isinstance(subject, str) else None,
         value=_json_value(raw.get("value"), source=source),
         children=children,
     )

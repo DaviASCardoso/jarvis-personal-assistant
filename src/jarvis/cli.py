@@ -147,6 +147,7 @@ from jarvis.proactivity import (
     TriggerEventConsumer,
     TriggerRule,
 )
+from jarvis.proactivity.adapters.memory_bridge import MemoryPresenceBridge
 from jarvis.proactivity.adapters.rules_config import load_conditional_rules
 from jarvis.skills import SkillError, SkillRegistry
 from jarvis.skills.builtin import register_builtin_skills
@@ -2768,9 +2769,15 @@ def _build_proactivity(
             on_action = _make_condition_callback(
                 settings, store=store, actions=actions, skills=skills
             )
+            # Fase 9.3: bridge só criado aqui, no composition root — o Core
+            # de `jarvis.proactivity` nunca importa `jarvis.memory` (ADR-0032).
+            memory_presence = MemoryPresenceBridge(build_memory_manager(memories))
             bus.subscribe(
                 ConditionalTriggerConsumer(
-                    condition_engine, context_reader=context.current, on_action=on_action
+                    condition_engine,
+                    context_reader=context.current,
+                    on_action=on_action,
+                    memory=memory_presence,
                 )
             )
 

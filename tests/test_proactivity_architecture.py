@@ -1,4 +1,4 @@
-"""Regra de dependência de `jarvis.proactivity` (Fase 7.1/7.2/7.6).
+"""Regra de dependência de `jarvis.proactivity` (Fase 7.1/7.2/7.6/9.3).
 
 Mesma técnica AST de `test_action_architecture.py`. A regra central: este pacote
 nunca conhece `jarvis.agent` — ele decide *se* vale raciocinar, nunca *o que*
@@ -6,6 +6,13 @@ fazer, e por isso não tem, e não pode ganhar, um caminho até o LLM. Os pontos
 que precisam de `jarvis.agent`/`jarvis.execution` de verdade (rodar o Agent
 Runtime, submeter a `ActionExecutor`) vivem no composition root, que recebe
 callbacks injetados em vez de o pacote conhecer essas camadas diretamente.
+
+Exceção pontual desde a Fase 9.3 (ADR-0032): `jarvis.memory` sai de
+`FORBIDDEN_ALWAYS` e vira `FORBIDDEN_IN_CORE` — mesmo desenho de
+`test_memory_architecture.py` para `context_bridge.py`. O Core continua sem
+conhecer `jarvis.memory`; só `proactivity/adapters/memory_bridge.py` pode,
+e um teste próprio garante que nenhum outro adapter ganha essa exceção de
+carona.
 """
 
 import ast
@@ -31,11 +38,11 @@ FORBIDDEN_IN_CORE = {
     "queue",
     "jarvis.cli",
     "jarvis.config",
+    "jarvis.memory",
 }
 
 FORBIDDEN_ALWAYS = {
     "jarvis.agent",
-    "jarvis.memory",
     "jarvis.policy",
     "jarvis.skills",
     "jarvis.tools",
@@ -102,6 +109,18 @@ def test_never_depends_on_agent_or_downstream_capability_layers(module: Path) ->
                 f"{_relative(module)} importa {imported}: proactivity nunca conhece "
                 "o Agent Runtime nem as camadas de capacidade"
             )
+
+
+def test_only_memory_bridge_is_allowed_to_import_memory() -> None:
+    """A exceção do ADR-0032 é cirúrgica: nenhum outro adapter de proactivity
+    ganha carona nela — `rules_config.py` continua livre de `jarvis.memory`."""
+    offenders = [
+        _relative(module)
+        for module in _adapter_modules()
+        if module.name != "memory_bridge.py"
+        and any(_violates(name, "jarvis.memory") for name in _imported_names(module))
+    ]
+    assert offenders == []
 
 
 def test_only_adapters_touch_the_filesystem() -> None:

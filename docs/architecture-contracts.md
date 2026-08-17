@@ -421,7 +421,9 @@ código deve rejeitar qualquer import que a viole.
 ### 3.17 Proactivity (Trigger Engine + Interruption Policy + Conditional Triggers)
 
 > Acrescentado na Fase 7 (subfases 7.1, 7.2, 7.6). Ver
-> [ADR-0029](adr/0029-proactivity-opt-in-layers.md).
+> [ADR-0029](adr/0029-proactivity-opt-in-layers.md). A partir da Fase 9.3,
+> `jarvis.memory` deixa de ser proibida — ver a nota após "Proibido conhecer"
+> abaixo e [ADR-0032](adr/0032-proactivity-memory-presence-bridge.md).
 
 - **Responsabilidade:** decidir **se** e **quando** um evento merece
   raciocínio (`TriggerEngine`) ou automação determinística
@@ -430,12 +432,20 @@ código deve rejeitar qualquer import que a viole.
   fazer — isso é do Agent Runtime — e nunca executa nada sozinho.
 - **Permitido conhecer:** Domain próprio, `jarvis.context.model` (leitura),
   `jarvis.events.event` (`RecordedEvent`), `jarvis.execution.model`
-  (`ActionRequest`/`Actor` — dado de intenção, não o executor).
+  (`ActionRequest`/`Actor` — dado de intenção, não o executor). Desde a Fase
+  9.3, leitura de `jarvis.memory` — mas só através do port próprio
+  `jarvis.proactivity.ports.MemoryPresence`, implementado por um bridge
+  adapter (`proactivity/adapters/memory_bridge.py`) que é o único módulo do
+  pacote autorizado a importar `jarvis.memory` de verdade (ADR-0032, mesmo
+  molde de `memory/adapters/context_bridge.py`). O Core (`conditions.py`)
+  continua sem nenhum import de `jarvis.memory`.
 - **Proibido conhecer:** `jarvis.agent` (nenhum tipo, nem `Decision` nem
   `AgentTurn` — os pontos de entrada recebem primitivos ou devolvem dado
-  para um callback injetado), `jarvis.memory`, `jarvis.skills`,
-  `jarvis.tools`, `jarvis.policy`, `jarvis.voice`, `jarvis.notify`.
-- **Entradas:** `RecordedEvent` (via `EventConsumer`), `CurrentContext`.
+  para um callback injetado), `jarvis.skills`, `jarvis.tools`,
+  `jarvis.policy`, `jarvis.voice`, `jarvis.notify`.
+- **Entradas:** `RecordedEvent` (via `EventConsumer`), `CurrentContext`,
+  opcionalmente um `MemoryPresence` (Fase 9.3, só quando
+  `proactivity_execute_actions` está ligado).
 - **Saídas:** um casamento de regra + callback acionado (`TriggerEngine`),
   ou uma `ActionRequest` pronta (`ConditionEngine`), ou uma
   `InterruptionDecision` (`InterruptionPolicy`).
@@ -815,6 +825,9 @@ consequências completas:
 - [ADR-0031](adr/0031-command-allowlist-execution-model.md) —
   `computer.open_app`/`computer.run_command`: só argv de uma allowlist,
   nunca comando livre (Fase 8).
+- [ADR-0032](adr/0032-proactivity-memory-presence-bridge.md) — Proactivity
+  pode consultar presença de memória, só via bridge adapter e port próprio,
+  nunca por import direto do Core (Fase 9.3).
 
 Decisões de campo-a-campo (schema exato de Event/Context/Memory, nomes
 exatos da taxonomia de erro) **não** viram ADR — são detalhe de contrato,

@@ -22,6 +22,7 @@ from jarvis.context.observation import Freshness
 from jarvis.events.event import JsonValue, RecordedEvent
 from jarvis.execution.model import ActionRequest, Actor
 from jarvis.proactivity.errors import InvalidConditionError
+from jarvis.proactivity.ports import MemoryPresence
 
 _VALID_CONTEXT_FIELDS: frozenset[str] = frozenset(item.value for item in ContextField)
 
@@ -31,6 +32,8 @@ class ConditionOp(StrEnum):
     CONTEXT_EQUALS = "context_equals"
     CONTEXT_PRESENT = "context_present"
     PAYLOAD_EQUALS = "payload_equals"
+    MEMORY_PRESENT = "memory_present"
+    MEMORY_EQUALS = "memory_equals"
     AND = "and"
     OR = "or"
     NOT = "not"
@@ -41,6 +44,7 @@ class Condition:
     op: ConditionOp
     field: str | None = None
     key: str | None = None
+    subject: str | None = None
     value: JsonValue = None
     children: tuple["Condition", ...] = ()
 
@@ -52,6 +56,9 @@ class Condition:
             )
         if self.op is ConditionOp.PAYLOAD_EQUALS and not self.key:
             raise InvalidConditionError("payload_equals: key não pode ser vazio")
+        needs_subject = self.op in (ConditionOp.MEMORY_PRESENT, ConditionOp.MEMORY_EQUALS)
+        if needs_subject and not self.subject:
+            raise InvalidConditionError(f"{self.op.value}: subject não pode ser vazio")
         if self.op in (ConditionOp.AND, ConditionOp.OR) and not self.children:
             raise InvalidConditionError(f"{self.op.value}: precisa de ao menos uma condição filha")
         if self.op is ConditionOp.NOT and len(self.children) != 1:
@@ -72,6 +79,14 @@ def context_present(field_name: str) -> Condition:
 
 def payload_equals(key: str, value: JsonValue) -> Condition:
     return Condition(op=ConditionOp.PAYLOAD_EQUALS, key=key, value=value)
+
+
+def memory_present(subject: str) -> Condition:
+    return Condition(op=ConditionOp.MEMORY_PRESENT, subject=subject)
+
+
+def memory_equals(subject: str, value: JsonValue) -> Condition:
+    return Condition(op=ConditionOp.MEMORY_EQUALS, subject=subject, value=value)
 
 
 def and_(*children: Condition) -> Condition:
@@ -103,7 +118,11 @@ def _context_value(context: CurrentContext, field_name: str) -> JsonValue:
 
 
 def evaluate_condition(
-    condition: Condition, *, event: RecordedEvent, context: CurrentContext
+    condition: Condition,
+    *,
+    event: RecordedEvent,
+    context: CurrentContext,
+    memory: MemoryPresence | None = None,
 ) -> bool:
     op = condition.op
     if op is ConditionOp.ALWAYS:
@@ -117,16 +136,28 @@ def evaluate_condition(
     if op is ConditionOp.PAYLOAD_EQUALS:
         assert condition.key is not None
         return event.event.payload.get(condition.key) == condition.value
+    if op is ConditionOp.MEMORY_PRESENT:
+        assert condition.subject is not None
+        # Sem port injetado, a condição nunca casa — nunca inventa presença
+        # de uma memória que ninguém consultou (Fase 9.3).
+        return memory is not None and memory.content_for(condition.subject) is not None
+    if op is ConditionOp.MEMORY_EQUALS:
+        assert condition.subject is not None
+        return memory is not None and memory.content_for(condition.subject) == condition.value
     if op is ConditionOp.AND:
         return all(
-            evaluate_condition(child, event=event, context=context) for child in condition.children
+            evaluate_condition(child, event=event, context=context, memory=memory)
+            for child in condition.children
         )
     if op is ConditionOp.OR:
         return any(
-            evaluate_condition(child, event=event, context=context) for child in condition.children
+            evaluate_condition(child, event=event, context=context, memory=memory)
+            for child in condition.children
         )
-    # NOT: única opção restante, garantida exaustiva por `ConditionOp` ter seis membros.
-    return not evaluate_condition(condition.children[0], event=event, context=context)
+    # NOT: única opção restante, garantida exaustiva por `ConditionOp` ter oito membros.
+    return not evaluate_condition(
+        condition.children[0], event=event, context=context, memory=memory
+    )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -185,12 +216,21 @@ class ConditionEngine:
     def rules(self) -> tuple[ConditionalRule, ...]:
         return self._rules
 
-    def evaluate(self, recorded: RecordedEvent, *, context: CurrentContext) -> ActionRequest | None:
+    def evaluate(
+        self,
+        recorded: RecordedEvent,
+        *,
+        context: CurrentContext,
+        memory: MemoryPresence | None = None,
+    ) -> ActionRequest | None:
         event_type = recorded.event.event_type
         for rule in self._rules:
             if not rule.matches_type(event_type):
                 continue
-            if not evaluate_condition(rule.condition, event=recorded, context=context):
+            matched = evaluate_condition(
+                rule.condition, event=recorded, context=context, memory=memory
+            )
+            if not matched:
                 continue
             resolved = _resolve(dict(rule.then.parameters), event=recorded)
             parameters = resolved if isinstance(resolved, Mapping) else {}
@@ -219,11 +259,13 @@ class ConditionalTriggerConsumer:
         *,
         context_reader: Callable[[], CurrentContext],
         on_action: Callable[[ActionRequest], None],
+        memory: MemoryPresence | None = None,
         name: str = "proactivity-conditions",
     ) -> None:
         self._engine = engine
         self._context_reader = context_reader
         self._on_action = on_action
+        self._memory = memory
         self._name = name
 
     @property
@@ -231,6 +273,6 @@ class ConditionalTriggerConsumer:
         return self._name
 
     def handle(self, event: RecordedEvent) -> None:
-        request = self._engine.evaluate(event, context=self._context_reader())
+        request = self._engine.evaluate(event, context=self._context_reader(), memory=self._memory)
         if request is not None:
             self._on_action(request)
