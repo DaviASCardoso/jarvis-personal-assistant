@@ -143,9 +143,16 @@ class TestAgentPursue:
         assert "a política recusou essa ação" in out
         assert len(provider.requests) == 2
 
-    def test_without_a_goal_argument_is_a_usage_error(self) -> None:
-        with pytest.raises(SystemExit):
-            main(["agent", "pursue"])
+    def test_without_a_goal_or_resume_is_reported_as_invalid_input(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Fase 10.5: `goal` virou opcional na sintaxe (para dar espaço a
+        `--resume`), então a validação de "falta o quê perseguir" saiu do
+        argparse e virou um erro de domínio, verificado antes de qualquer
+        credencial ou banco ser tocado."""
+        assert main(["agent", "pursue"]) == 2
+
+        assert "--resume" in capsys.readouterr().err
 
     def test_the_next_step_actually_sees_the_file_content(
         self, monkeypatch: pytest.MonkeyPatch, isolated_data_dir: Path

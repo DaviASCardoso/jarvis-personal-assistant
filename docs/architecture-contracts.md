@@ -462,6 +462,34 @@ código deve rejeitar qualquer import que a viole.
   efeito nenhum.
 - **Responsável:** Proactivity.
 
+### 3.18 Pursuits (checkpoint/resume do Goal Pursuit Loop)
+
+> Acrescentado na Fase 10.5. Ver
+> [ADR-0033](adr/0033-pursuit-state-as-operational-store.md).
+
+- **Responsabilidade:** guardar onde um `agent pursue` parou — objetivo,
+  passo, status, último desfecho de ação e última proposta — para retomar
+  sem re-perguntar ao usuário. Nunca decide, nunca executa, nunca sabe *por
+  que* parou além do rótulo de status que recebeu.
+- **Permitido conhecer:** Domain próprio (`PursuitState`, `PursuitStatus`).
+  `last_action_result`/`previous_proposal` são documentos JSON soltos, não
+  tipados — o pacote não conhece `ActionResultSummary` nem `ActionProposal`.
+- **Proibido conhecer:** `jarvis.agent`, `jarvis.execution`,
+  `jarvis.memory`, `jarvis.skills`, `jarvis.tools`, `jarvis.policy`,
+  `jarvis.tasks`, `jarvis.voice`, `jarvis.notify`, `jarvis.proactivity`,
+  `jarvis.decisions` — mais estrito que `jarvis.tasks` (§3.16), que pode
+  conhecer `jarvis.execution`. Só o composition root traduz entre o
+  documento JSON solto e os tipos reais de `jarvis.agent`.
+- **Entradas:** `PursuitState` completo (`put`, na criação) ou os quatro
+  campos que mudam por passo (`advance`, um método só — todo passo altera
+  o mesmo conjunto de campos junto).
+- **Saídas:** `PursuitState` atual, por `pursuit_id`.
+- **Regra crítica:** estado operacional, apagável, fora do Event Store —
+  mesma cautela de privacidade do `PendingAction` (ADR-0014). `--resume`
+  não reconcilia o que aconteceu fora do processo enquanto ele esteve
+  parado; retoma exatamente do último checkpoint salvo.
+- **Responsável:** Pursuits.
+
 ---
 
 ## 4. LLM Independence
@@ -836,6 +864,9 @@ consequências completas:
 - [ADR-0032](adr/0032-proactivity-memory-presence-bridge.md) — Proactivity
   pode consultar presença de memória, só via bridge adapter e port próprio,
   nunca por import direto do Core (Fase 9.3).
+- [ADR-0033](adr/0033-pursuit-state-as-operational-store.md) — Checkpoint do
+  Goal Pursuit Loop como estado operacional apagável, fora do Event Store,
+  com `last_action_result`/`previous_proposal` não tipados no Core (Fase 10.5).
 
 Decisões de campo-a-campo (schema exato de Event/Context/Memory, nomes
 exatos da taxonomia de erro) **não** viram ADR — são detalhe de contrato,

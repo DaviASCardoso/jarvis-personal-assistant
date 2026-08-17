@@ -149,6 +149,15 @@ from jarvis.proactivity import (
 )
 from jarvis.proactivity.adapters.memory_bridge import MemoryPresenceBridge
 from jarvis.proactivity.adapters.rules_config import load_conditional_rules
+from jarvis.pursuits import (
+    PursuitError,
+    PursuitRepositoryError,
+    PursuitState,
+    PursuitStatus,
+    UnknownPursuitError,
+    new_pursuit_id,
+)
+from jarvis.pursuits.adapters.sqlite_pursuits import SqlitePursuitRepository
 from jarvis.skills import SkillError, SkillRegistry
 from jarvis.skills.builtin import register_builtin_skills
 from jarvis.tasks import BackgroundTask, TaskError, TaskManager, TaskRepositoryError, TaskStatus
@@ -530,6 +539,12 @@ def voice_store_path(settings: Settings) -> Path:
 def task_store_path(settings: Settings) -> Path:
     """Sexto banco: tarefas em background, estado operacional próprio (Fase 7.5)."""
     return settings.data_dir / "tasks.db"
+
+
+def pursuit_store_path(settings: Settings) -> Path:
+    """Sétimo banco: checkpoints do Goal Pursuit Loop, estado operacional
+    próprio, fora do Event Store (Fase 10.5, mesma cautela do ADR-0014)."""
+    return settings.data_dir / "pursuits.db"
 
 
 def build_stt(settings: Settings) -> GroqSpeechToText:
@@ -1100,13 +1115,27 @@ def build_parser() -> argparse.ArgumentParser:
     pursue = agent_actions.add_parser(
         "pursue", help="Persegue um objetivo em múltiplos passos, até parar ou pedir confirmação."
     )
-    pursue.add_argument("goal", help="O objetivo para o agente perseguir.")
+    pursue.add_argument(
+        "goal",
+        nargs="?",
+        default=None,
+        help=(
+            "O objetivo para o agente perseguir. Com --resume, é opcional — "
+            "se dado, vira orientação adicional para o passo seguinte."
+        ),
+    )
     pursue.add_argument("--conversation-id")
     pursue.add_argument(
         "--max-steps",
         type=int,
         default=None,
-        help="Teto de passos (default: JARVIS_AGENT_PURSUE_MAX_STEPS).",
+        help="Teto de passos (default: JARVIS_AGENT_PURSUE_MAX_STEPS; em --resume, o teto "
+        "total contando os passos já dados).",
+    )
+    pursue.add_argument(
+        "--resume",
+        metavar="PURSUIT_ID",
+        help="Retoma um agent pursue interrompido a partir do checkpoint salvo (Fase 10.5).",
     )
 
     skills = subparsers.add_parser("skills", help="Lista as capacidades registradas.")
@@ -1343,6 +1372,7 @@ def _info(settings: Settings) -> int:
     print(f"action_store  {action_store_path(settings)}")
     print(f"voice_store   {voice_store_path(settings)}")
     print(f"task_store    {task_store_path(settings)}")
+    print(f"pursuit_store {pursuit_store_path(settings)}")
     print(
         f"voice         wake={settings.wake_strategy} stt={settings.stt_provider} "
         f"tts={settings.tts_provider} voz={settings.tts_voice}"
@@ -1861,6 +1891,12 @@ def _reflect_on_session(
         print(f"sessão      memória {verb} como {write.stored.memory.memory_id}")
 
 
+PursuitProposal = tuple[str, Mapping[str, JsonValue]]
+PursuitStepCallback = Callable[
+    [int, PursuitStatus, "ActionResultSummary | None", "PursuitProposal | None"], None
+]
+
+
 def _run_agent_loop(
     settings: Settings,
     *,
@@ -1875,6 +1911,10 @@ def _run_agent_loop(
     conversation_id: str,
     max_steps: int,
     execute: bool,
+    start_step: int = 1,
+    last_result: ActionResultSummary | None = None,
+    previous_proposal: PursuitProposal | None = None,
+    on_step: PursuitStepCallback | None = None,
 ) -> tuple[AgentTurn, MemoryWrite]:
     """Miolo comum de `agent ask`/`agent chat`/`agent pursue` (Fase 10.2).
 
@@ -1884,16 +1924,21 @@ def _run_agent_loop(
     Fase 10.2 — inclusive a ausência de `passo N/M`/`parado: N passos
     atingidos`, impressos só quando `max_steps > 1`.
 
+    `start_step`/`last_result`/`previous_proposal` existem para o
+    `--resume` da Fase 10.5 — retomar no meio de um `agent pursue`
+    interrompido, sem re-perguntar ao usuário. `on_step`, se dado, é
+    chamado a cada parada/continuação com o suficiente para persistir um
+    checkpoint (`jarvis.pursuits`) — `_run_agent_loop` não sabe o que quem
+    chama faz com isso, só entrega o fato.
+
     Devolve o último `AgentTurn`/`MemoryWrite` processados, para quem chama
     (tipicamente `agent chat`) atualizar sua própria `Conversation`.
     """
     multi_step = max_steps > 1
-    last_result: ActionResultSummary | None = None
-    previous_proposal: tuple[str, Mapping[str, JsonValue]] | None = None
     last_turn: AgentTurn | None = None
     last_write = MemoryWrite()
 
-    for step in range(1, max_steps + 1):
+    for step in range(start_step, max_steps + 1):
         if multi_step:
             print(f"passo       {step}/{max_steps}")
         turn = runtime.handle(
@@ -1912,6 +1957,8 @@ def _run_agent_loop(
         if not turn.decision.proposes_action:
             if multi_step:
                 print("agente      concluído: nada mais a propor")
+            if on_step is not None:
+                on_step(step, PursuitStatus.COMPLETED, last_result, previous_proposal)
             break
         if not execute:
             break
@@ -1921,6 +1968,10 @@ def _run_agent_loop(
         current = (proposal.skill, proposal.parameters)
         if current == previous_proposal:
             print("agente      parado: repetiria a mesma ação")
+            if on_step is not None:
+                on_step(
+                    step, PursuitStatus.STOPPED_REPEATED_PROPOSAL, last_result, previous_proposal
+                )
             break
 
         outcome = _submit_proposal(
@@ -1931,18 +1982,25 @@ def _run_agent_loop(
         print()
         _print_outcome(outcome)
         _explain_outcome(runtime, outcome, conversation_id=conversation_id, recent=recent)
+        this_result = _result_summary(outcome)
 
         if outcome.status is ExecutionStatus.AWAITING_CONFIRMATION:
             print(
                 f"agente      pausado: confirme com `jarvis action confirm {outcome.execution_id}`"
             )
+            if on_step is not None:
+                on_step(step, PursuitStatus.AWAITING_CONFIRMATION, this_result, current)
             break
         if outcome.status in (ExecutionStatus.DENIED, ExecutionStatus.REJECTED):
             print("agente      parado: ação negada, não insistindo")
+            if on_step is not None:
+                on_step(step, PursuitStatus.DENIED, this_result, current)
             break
 
         previous_proposal = current
-        last_result = _result_summary(outcome)
+        last_result = this_result
+        if on_step is not None:
+            on_step(step, PursuitStatus.RUNNING, last_result, previous_proposal)
         agent_input = UserMessage(
             text="Continue perseguindo o objetivo original considerando o resultado da ação.",
             at=datetime.now(UTC),
@@ -1952,8 +2010,10 @@ def _run_agent_loop(
     else:
         if multi_step:
             print(f"agente      parado: {max_steps} passos atingidos")
+        if on_step is not None:
+            on_step(max_steps, PursuitStatus.STOPPED_MAX_STEPS, last_result, previous_proposal)
 
-    assert last_turn is not None  # range(1, max_steps + 1) roda ao menos uma vez
+    assert last_turn is not None  # o range roda ao menos uma vez (start_step <= max_steps)
     return last_turn, last_write
 
 
@@ -2089,8 +2149,69 @@ def _agent_react(args: argparse.Namespace, settings: Settings) -> int:
     return EXIT_OK
 
 
+def _dump_action_result(result: ActionResultSummary | None) -> Mapping[str, JsonValue] | None:
+    if result is None:
+        return None
+    return {
+        "skill": result.skill,
+        "status": result.status,
+        "execution_id": result.execution_id,
+        "summary": result.summary,
+        "reason": result.reason,
+    }
+
+
+def _load_action_result(data: Mapping[str, JsonValue] | None) -> ActionResultSummary | None:
+    if data is None:
+        return None
+    return ActionResultSummary(
+        skill=str(data.get("skill", "")),
+        status=str(data.get("status", "")),
+        execution_id=str(data.get("execution_id", "")),
+        summary=str(data.get("summary", "")),
+        reason=str(data.get("reason", "")),
+    )
+
+
+def _dump_proposal(proposal: PursuitProposal | None) -> Mapping[str, JsonValue] | None:
+    if proposal is None:
+        return None
+    skill, parameters = proposal
+    return {"skill": skill, "parameters": dict(parameters)}
+
+
+def _load_proposal(data: Mapping[str, JsonValue] | None) -> PursuitProposal | None:
+    if data is None:
+        return None
+    skill, parameters = data.get("skill"), data.get("parameters")
+    if not isinstance(skill, str) or not isinstance(parameters, Mapping):
+        return None
+    return (skill, parameters)
+
+
+def _make_pursuit_checkpoint(
+    repository: SqlitePursuitRepository, *, pursuit_id: str
+) -> PursuitStepCallback:
+    def on_step(
+        step: int,
+        status: PursuitStatus,
+        last_result: ActionResultSummary | None,
+        previous_proposal: PursuitProposal | None,
+    ) -> None:
+        repository.advance(
+            pursuit_id,
+            step=step,
+            status=status,
+            last_action_result=_dump_action_result(last_result),
+            previous_proposal=_dump_proposal(previous_proposal),
+            moment=datetime.now(UTC),
+        )
+
+    return on_step
+
+
 def _agent_pursue(args: argparse.Namespace, settings: Settings) -> int:
-    """Fase 9.2 — Goal Pursuit Loop.
+    """Fase 9.2 — Goal Pursuit Loop; Fase 10.5 — checkpoint/resume.
 
     `Decision` continua atômica (ADR-0003 intacto): cada passo é uma proposta
     isolada, submetida à Policy Engine individualmente, como em `agent ask
@@ -2099,17 +2220,94 @@ def _agent_pursue(args: argparse.Namespace, settings: Settings) -> int:
     `last_action_result` do passo anterior, até um dos cinco critérios de
     parada abaixo. O loop nunca insiste sozinho: confirmação pendente e
     negação de política sempre pausam, nunca são contornadas.
+
+    A cada passo, o progresso é gravado em `PursuitState` — se o processo
+    morrer no meio ou parar numa confirmação pendente, `--resume
+    <pursuit_id>` retoma de onde parou (10.5), sem re-perguntar ao usuário.
+    `--resume` não reconcilia o que aconteceu fora do processo enquanto ele
+    esteve parado (ex. uma confirmação dada via `jarvis action confirm`) —
+    retoma exatamente do último checkpoint salvo, não de um estado
+    re-verificado.
     """
-    conversation_id = args.conversation_id or new_event_id()
-    max_steps = args.max_steps if args.max_steps is not None else settings.agent_pursue_max_steps
+    if not args.resume and not args.goal:
+        raise PursuitError("informe um objetivo, ou use --resume <pursuit_id>")
     skills = build_skill_registry()
     with (
         SqliteEventStore.open(event_store_path(settings)) as store,
         SqliteContextSnapshotRepository.open(context_store_path(settings)) as snapshots,
         SqliteMemoryRepository.open(memory_store_path(settings)) as memories,
+        SqlitePursuitRepository.open(pursuit_store_path(settings)) as pursuits,
     ):
+        state = None
+        if args.resume:
+            state = pursuits.get(args.resume)
+            if state is None:
+                raise UnknownPursuitError(f"pursuit não encontrado: {args.resume}")
+            if not state.status.is_resumable:
+                raise PursuitError(
+                    f"pursuit {args.resume} já concluiu ({state.status.value}); nada a retomar"
+                )
+            if args.max_steps is not None and args.max_steps <= state.step:
+                raise PursuitError(
+                    f"--max-steps ({args.max_steps}) precisa ser maior que o passo já "
+                    f"atingido ({state.step})"
+                )
+
         context = _prepared_context(settings, store, snapshots)
         runtime = build_agent_runtime(settings, context=context, memories=memories)
+
+        if state is not None:
+            pursuit_id = state.pursuit_id
+            conversation_id = state.conversation_id
+            max_steps = (
+                args.max_steps
+                if args.max_steps is not None
+                else state.step + settings.agent_pursue_max_steps
+            )
+            start_step = state.step + 1
+            last_result = _load_action_result(state.last_action_result)
+            previous_proposal = _load_proposal(state.previous_proposal)
+            if args.goal:
+                resume_text = (
+                    f"Continuando o objetivo original ('{state.goal}'), considere também "
+                    f"esta orientação adicional: {args.goal}"
+                )
+            else:
+                resume_text = (
+                    f"Continuando o objetivo original ('{state.goal}'), considerando o "
+                    "resultado da última ação."
+                )
+            agent_input: AgentInput = UserMessage(
+                text=resume_text, at=datetime.now(UTC), conversation_id=conversation_id
+            )
+            print(f"pursuit     {pursuit_id} (retomado do passo {state.step})")
+        else:
+            pursuit_id = new_pursuit_id()
+            conversation_id = args.conversation_id or new_event_id()
+            max_steps = (
+                args.max_steps if args.max_steps is not None else settings.agent_pursue_max_steps
+            )
+            start_step = 1
+            last_result = None
+            previous_proposal = None
+            now = datetime.now(UTC)
+            pursuits.put(
+                PursuitState(
+                    pursuit_id=pursuit_id,
+                    goal=args.goal,
+                    conversation_id=conversation_id,
+                    max_steps=max_steps,
+                    step=0,
+                    status=PursuitStatus.RUNNING,
+                    last_action_result=None,
+                    previous_proposal=None,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            agent_input = UserMessage(text=args.goal, at=now, conversation_id=conversation_id)
+            print(f"pursuit     {pursuit_id}")
+
         _run_agent_loop(
             settings,
             store=store,
@@ -2118,13 +2316,15 @@ def _agent_pursue(args: argparse.Namespace, settings: Settings) -> int:
             skills=skills,
             runtime=runtime,
             recent=_recent_events(store),
-            agent_input=UserMessage(
-                text=args.goal, at=datetime.now(UTC), conversation_id=conversation_id
-            ),
+            agent_input=agent_input,
             conversation=None,
             conversation_id=conversation_id,
             max_steps=max_steps,
             execute=True,
+            start_step=start_step,
+            last_result=last_result,
+            previous_proposal=previous_proposal,
+            on_step=_make_pursuit_checkpoint(pursuits, pursuit_id=pursuit_id),
         )
     return EXIT_OK
 
@@ -3222,6 +3422,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         NotifyError,
         DecisionLogError,
         TaskError,
+        PursuitError,
     ) as error:
         print(f"erro: {error}", file=sys.stderr)
         return EXIT_INVALID_INPUT
@@ -3237,6 +3438,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         TextToSpeechError,
         VoiceRepositoryError,
         TaskRepositoryError,
+        PursuitRepositoryError,
     ) as error:
         print(f"erro: {error}", file=sys.stderr)
         return EXIT_INFRASTRUCTURE_ERROR

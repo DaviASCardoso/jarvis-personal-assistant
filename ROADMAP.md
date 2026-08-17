@@ -1749,13 +1749,24 @@ feat: let read skills report content, not just byte counts
 
 ## 10.5 — Checkpoint/Resume do Goal Pursuit Loop
 
-- [ ] Novo pacote `src/jarvis/pursuits/` (`model.py`/`ports.py`/
+- [x] Novo pacote `src/jarvis/pursuits/` (`model.py`/`ports.py`/
       `adapters/sqlite_pursuits.py`), mesmo molde de `jarvis/tasks/` —
       sétimo banco `data/pursuits.db`, estado operacional apagável (mesma
-      cautela de privacidade do ADR-0014, não Event Store)
-- [ ] `cli._agent_pursue` grava checkpoint a cada passo
-- [ ] `--resume <pursuit_id>` retoma, com orientação adicional opcional
-- [ ] Testes (repositório, checkpoint, resume completo)
+      cautela de privacidade do ADR-0014, não Event Store). Mais estrito
+      que `jarvis.tasks`: nem `jarvis.agent` nem `jarvis.execution` são
+      conhecidos — `last_action_result`/`previous_proposal` viajam como
+      JSON solto (ADR-0033 novo)
+- [x] `_run_agent_loop` ganhou `start_step`/`last_result`/
+      `previous_proposal`/`on_step` — `cli._agent_pursue` grava checkpoint
+      a cada passo via `advance` (método único de transição)
+- [x] `--resume <pursuit_id>` retoma do passo certo, com orientação
+      adicional opcional (o `goal` posicional vira isso quando `--resume`
+      é usado); teto de passos novo por padrão se `--max-steps` não for
+      repetido; erros claros para id desconhecido, pursuit já concluído e
+      `--max-steps` insuficiente
+- [x] Testes (`test_pursuits_sqlite.py`, `test_pursuits_architecture.py`,
+      `test_cli_agent_pursue_resume.py` — pausa→confirma→retoma, resume
+      após teto de passos, orientação extra chegando ao prompt)
 
 **Commit esperado:**
 
