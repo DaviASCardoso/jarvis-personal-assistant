@@ -4,8 +4,9 @@ Agente pessoal de IA, construído de forma incremental e orientado a eventos,
 contexto e memória.
 
 > **Status:** Fase 8 — Integration + Hardening concluída (v0.1); Fase 9 —
-> Deepening Reasoning + Autonomy em andamento (adição pós-v0.1, fora das oito
-> fases originais — ver `ROADMAP.md`). O Jarvis registra
+> Deepening Reasoning + Autonomy e Fase 10 — Deliberation, Multi-Action &
+> Continuity concluídas (adições pós-v0.1, fora das oito fases originais —
+> ver `ROADMAP.md`). O Jarvis registra
 > acontecimentos como fatos imutáveis, os projeta em um estado atual consultável,
 > lembra (memórias tipadas, com proveniência, validade e ranking explicável),
 > raciocina sobre tudo isso com um LLM atrás de um port vendor-agnóstico e
@@ -35,6 +36,14 @@ contexto e memória.
 > objetivo, sem que `Decision` deixe de ser atômica) e permite que Conditional
 > Triggers consultem memória de longo prazo (`memory_present`/
 > `memory_equals`, via bridge adapter — [ADR-0032](docs/adr/0032-proactivity-memory-presence-bridge.md)).
+>
+> A Fase 10 aprofunda isso: toda decisão `act`/`act_and_notify` delibera por
+> escrito antes de decidir (`reasoning`); um só pedido pode disparar mais de
+> uma ação (`--max-steps` em `ask`/`chat`); fechar uma conversa ou sessão de
+> voz dispara uma reflexão sobre o todo, não só turno a turno; skills de
+> leitura deixam de esconder o próprio conteúdo do agente; e o Goal Pursuit
+> Loop ganha checkpoint/resume (`--resume <pursuit_id>`), estado operacional
+> apagável fora do Event Store — [ADR-0033](docs/adr/0033-pursuit-state-as-operational-store.md).
 > Planejamento completo em [ROADMAP.md](ROADMAP.md).
 
 ## Requisitos
@@ -124,8 +133,16 @@ uv run jarvis agent react --event-id <id>
 # submete a ação proposta ao Policy Engine (opt-in)
 uv run jarvis agent ask "grave um lembrete no arquivo notas.txt" --execute
 
-# persegue um objetivo em múltiplos passos, até parar ou pedir confirmação
-uv run jarvis agent pursue "organize os arquivos da pasta" --execute --max-steps 4
+# Fase 10.2: um pedido pode disparar mais de uma ação (default: 1, sem mudar nada)
+uv run jarvis agent ask "veja o status e grave uma nota" --execute --max-steps 3
+uv run jarvis agent chat --execute --max-steps 3   # mesma ideia, por linha digitada
+
+# persegue um objetivo em múltiplos passos — sempre executa, sem --execute
+uv run jarvis agent pursue "organize os arquivos da pasta" --max-steps 4
+
+# Fase 10.5: se parar (confirmação pendente, teto de passos), retoma depois
+uv run jarvis agent pursue --resume <pursuit_id>
+uv run jarvis agent pursue --resume <pursuit_id> "considere também isto"
 ```
 
 O agente monta contexto + memória + conversa, chama o LLM através de um port
@@ -136,12 +153,20 @@ ação — por isso `--execute` é opt-in. Um evento de baixa importância vira
 silêncio sem sequer chamar o modelo. Detalhes em
 [`docs/agent-runtime.md`](docs/agent-runtime.md).
 
+Desde a Fase 10.1, toda decisão `act`/`act_and_notify` carrega `reasoning` —
+a deliberação passo a passo que levou à escolha, obrigatória exatamente onde
+uma decisão errada tem efeito no mundo. Aparece na saída do CLI
+(`raciocínio  ...`) e fica gravada no Decision Log.
+
 O que o agente decide **lembrar** é gravado no Memory System pelo composition
 root, sem `--execute` e sem passar pela política: uma afirmação não é uma
 capacidade, não toca nada fora do processo e se desfaz por supersessão
 ([ADR-0018](docs/adr/0018-memory-writes-outside-the-policy-engine.md)). A saída
 diz o que aconteceu — `gravada como <id>`, `reforçada como <id>` ou `proposta
-recusada: <motivo>` — e o que foi gravado volta no próximo prompt.
+recusada: <motivo>` — e o que foi gravado volta no próximo prompt. Desde a
+Fase 10.3, fechar `agent chat` ou uma sessão de voz também dispara uma
+reflexão sobre a conversa inteira, não só turno a turno
+(`JARVIS_AGENT_SESSION_REFLECTION_ENABLED`, ligado por padrão).
 
 `jarvis agent pursue` (Fase 9.2) reinvoca o agente em sequência até um dos
 cinco critérios de parada: decisão sem ação proposta, teto de passos
@@ -151,6 +176,13 @@ nunca auto-confirma), negação de política (não insiste) ou proposta idêntic
 autorizada pela Policy Engine individualmente — "planejar" não é um novo
 tipo de decisão, é o composition root reobservando o resultado do passo
 anterior antes do próximo turno.
+
+A cada passo, o progresso fica salvo (Fase 10.5): se o processo parar numa
+confirmação pendente ou morrer no meio, `--resume <pursuit_id>` retoma
+exatamente do checkpoint, com um teto de passos novo por padrão. Não
+reconcilia o que aconteceu fora do processo enquanto ele esteve parado (ex.
+uma confirmação dada via `jarvis action confirm`) — retoma do último
+checkpoint salvo, não de um estado re-verificado.
 
 ### Skills, tools e ações
 
@@ -299,8 +331,8 @@ autorização** em vigor — ela decide entre uma ação permitida e uma negada,
 deve ser adivinhada.
 
 Os dados locais ficam em `data/`: `events.db`, `context.db`, `memory.db`,
-`actions.db`, `voice.db`, `tasks.db` e o workspace das skills de arquivo.
-Nenhum deles é versionado.
+`actions.db`, `voice.db`, `tasks.db`, `pursuits.db` e o workspace das skills
+de arquivo. Nenhum deles é versionado.
 
 ## Sobre containers
 

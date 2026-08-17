@@ -90,6 +90,17 @@ teste passou a ter dentes. `jarvis.mcp` segue sem existir de propósito: MCP é
 um backend do Tool Router (`tools/adapters/mcp_*.py`), não um componente de
 domínio.
 
+**`reasoning` (Fase 10.1):** campo de deliberação passo a passo, obrigatório
+em `act`/`act_and_notify` — é ali que uma decisão errada tem efeito no
+mundo. Opcional (nunca proibido) nos demais tipos. Aditivo por desenho: o
+schema pedido ao modelo (`prompt.py::SYSTEM_INSTRUCTION`) já traz
+`reasoning` como primeira chave, o que tende a guiar a ordem de geração —
+"pense antes de decidir" sem uma segunda chamada ao LLM. Mesmo tratamento
+de privacidade que `message`: viaja no Decision Log
+(`decisions/record.py`), nunca em log estruturado
+(`tests/test_agent_privacy.py`), e é impresso em `cli._print_turn` sempre
+que presente.
+
 ## `LLMProvider`: o que um adapter precisa garantir
 
 ```python
@@ -208,10 +219,12 @@ Cadeia reconstruível, e desde a Fase 5 percorrível de verdade com
 | `JARVIS_GEMINI_API_KEY` | — | **secret** (`SecretStr`) |
 | `JARVIS_GEMINI_MODEL` | `gemini-3.6-flash` | configuração |
 | `JARVIS_LLM_TIMEOUT_SECONDS` | `30` | configuração |
-| `JARVIS_LLM_MAX_OUTPUT_TOKENS` | `1024` | configuração |
+| `JARVIS_LLM_MAX_OUTPUT_TOKENS` | `1536` (Fase 10.1; era `1024`) | configuração |
 | `JARVIS_LLM_TEMPERATURE` | `0.2` | configuração |
 | `JARVIS_LLM_MAX_ATTEMPTS` | `2` | configuração |
 | `JARVIS_AGENT_IMPORTANCE_THRESHOLD` | `0.45` | configuração |
+| `JARVIS_AGENT_PURSUE_MAX_STEPS` | `6` (Fase 9.2) | configuração |
+| `JARVIS_AGENT_SESSION_REFLECTION_ENABLED` | `true` (Fase 10.3) | configuração |
 
 `build_llm_provider` em `cli.py` é o **único** lugar que lê a credencial. O
 `AgentRuntime` recebe valores já resolvidos (`GenerationDefaults`), nunca
@@ -225,10 +238,19 @@ jarvis agent ask "o que aconteceu enquanto eu estava fora?"
 jarvis agent ask "oi" --conversation-id conv-42
 printf 'oi\ne depois?\n' | jarvis agent chat        # multi-turno, uma mensagem por linha
 jarvis agent react --event-id <id de um evento registrado>
+
+# Fase 10.2: um pedido pode disparar mais de uma ação (default: 1, sem mudar nada)
+jarvis agent ask "veja o status e grave uma nota" --execute --max-steps 3
+jarvis agent chat --execute --max-steps 3   # mesma ideia, por linha digitada
+
+# Fase 9.2/10.5: persegue um objetivo em múltiplos passos, com checkpoint
+jarvis agent pursue "organize os arquivos" --max-steps 4
+jarvis agent pursue --resume <pursuit_id>                       # retoma
+jarvis agent pursue --resume <pursuit_id> "considere também X"  # + orientação
 ```
 
-Sem `JARVIS_GEMINI_API_KEY` os três falham com mensagem explícita e código de
-saída 1; todo o resto do Jarvis continua funcionando offline.
+Sem `JARVIS_GEMINI_API_KEY` os comandos falham com mensagem explícita e
+código de saída 1; todo o resto do Jarvis continua funcionando offline.
 
 Para `act`/`act_and_notify` **sem** `--execute` a saída imprime, literalmente,
 `proposta não executada: use --execute para submetê-la à política`. Com a flag a
@@ -379,6 +401,30 @@ teto de passos (`JARVIS_AGENT_PURSUE_MAX_STEPS`), confirmação pendente
 (pausa), negação de política (não insiste) e proposta idêntica à anterior
 (evita repetição). Ver `ROADMAP.md` subfase 9.2 e `tests/test_cli_agent_pursue.py`.
 
+## Múltiplas ações, reflexão de sessão e checkpoint (Fase 10)
+
+Três extensões sobre o mesmo fechamento de loop, todas no composition root
+— `AgentRuntime` continua sem mudar:
+
+- **Multi-ação em `ask`/`chat` (10.2).** `_run_agent_loop` (`cli.py`) é o
+  miolo comum entre `agent ask`, `agent chat` e `agent pursue`. Com
+  `--max-steps 1` (default) o comportamento é idêntico ao de antes da
+  Fase 10 — inclusive a ausência de `passo N/M`. Com um teto maior, `ask`/
+  `chat` passam a poder disparar mais de uma ação por pedido, reaproveitando
+  os mesmos cinco critérios de parada do Goal Pursuit Loop.
+- **Reflexão de fim de sessão (10.3).** Ao fechar `agent chat` (EOF do
+  stdin) ou uma sessão de voz, um turno a mais pergunta ao histórico
+  inteiro o que vale consolidar — em vez de depender só do que cada turno
+  individual propôs no calor da hora. `agent_session_reflection_enabled`
+  (default ligado) controla isso; custa uma chamada por sessão, não por
+  turno.
+- **Checkpoint/resume (10.5).** Cada passo de `agent pursue` grava um
+  `PursuitState` (`jarvis.pursuits`) — se o processo morrer no meio ou
+  parar numa confirmação, `--resume <pursuit_id>` retoma de onde parou.
+  Estado operacional apagável, fora do Event Store (mesma cautela do
+  ADR-0014 para `PendingAction`) — ver
+  [ADR-0033](adr/0033-pursuit-state-as-operational-store.md).
+
 ## Documentos relacionados
 
 - Contrato normativo: [architecture-contracts.md §3.4](architecture-contracts.md#34-agent-runtime)
@@ -386,5 +432,6 @@ teto de passos (`JARVIS_AGENT_PURSUE_MAX_STEPS`), confirmação pendente
 - Policy Engine como autoridade: [ADR-0003](adr/0003-policy-engine-safety-authority.md) e [security.md](security.md)
 - Adapter Gemini: [ADR-0011](adr/0011-gemini-rest-llm-adapter.md)
 - Decisão estruturada: [ADR-0012](adr/0012-core-owned-structured-decisions.md)
+- Checkpoint/resume do Goal Pursuit Loop: [ADR-0033](adr/0033-pursuit-state-as-operational-store.md)
 - Plano da fase: [phase-4-plan.md](phase-4-plan.md)
 - Visão geral: [architecture.md](architecture.md)

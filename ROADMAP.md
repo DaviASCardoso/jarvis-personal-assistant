@@ -11,8 +11,9 @@
 
 # Visão geral
 
-O sistema será construído em oito fases (a Fase 9 é uma adição pós-v0.1, ver
-nota na própria seção — não fazia parte do plano original de 16 semanas):
+O sistema será construído em oito fases (as Fases 9 e 10 são adições
+pós-v0.1, ver nota nas próprias seções — não faziam parte do plano original
+de 16 semanas):
 
 - [x] **Fase 0 — Foundation**
 - [x] **Fase 1 — Event System**
@@ -24,6 +25,7 @@ nota na própria seção — não fazia parte do plano original de 16 semanas):
 - [x] **Fase 7 — Proactivity + Autonomy**
 - [x] **Fase 8 — Integration + Hardening**
 - [x] **Fase 9 — Deepening Reasoning + Autonomy** (adicionada pós-v0.1)
+- [x] **Fase 10 — Deliberation, Multi-Action & Continuity** (adicionada pós-v0.1)
 
 ## Metodologia de desenvolvimento
 
@@ -1778,10 +1780,14 @@ feat: add checkpoint and resume to the goal pursuit loop
 
 ## 10.6 — Documentação
 
-- [ ] `docs/agent-runtime.md`, `README.md`
-- [ ] Novo `docs/adr/0033-pursuit-state-as-operational-store.md`
-- [ ] `docs/architecture-contracts.md` — entrada para `jarvis.pursuits`
-- [ ] `ROADMAP.md` fechado subfase a subfase
+- [x] `docs/agent-runtime.md` (`reasoning`, multi-ação, reflexão de sessão,
+      checkpoint/resume, tabela de configuração), `README.md` (exemplos
+      novos, status, correção de um exemplo de `pursue --execute` que já
+      estava errado desde a Fase 9 — `pursue` nunca teve essa flag)
+- [x] Novo `docs/adr/0033-pursuit-state-as-operational-store.md`
+- [x] `docs/architecture-contracts.md` §3.18 — entrada para `jarvis.pursuits`
+- [x] `ROADMAP.md` fechado subfase a subfase (já feito nesta sessão), M10
+      acrescentado
 
 **Commit esperado:**
 
@@ -1791,7 +1797,7 @@ docs: document deliberation, multi-action and continuity
 
 ### Fase 10 completa
 
-- [ ] **FASE 10 CONCLUÍDA**
+- [x] **FASE 10 CONCLUÍDA**
 
 ---
 
@@ -1959,6 +1965,26 @@ O sistema consegue decidir quando deve falar e agir.
 O sistema fecha o loop `observe result` e persegue objetivos em múltiplos
 passos, sem deixar de ser o agente atômico e revisável por decisão que a
 Fase 4 desenhou.
+
+---
+
+## M10 — Deliberation, Multi-Action & Continuity
+
+**Pós-v0.1 (adicionada fora do plano original de 16 semanas)**
+
+```text
+[x] Reasoning Field
+[x] Multi-Action por Pedido
+[x] Reflexão de Fim de Sessão
+[x] Resultado de Leitura Deixa de Ser Cego
+[x] Checkpoint/Resume do Goal Pursuit Loop
+[x] Documentation
+```
+
+O sistema delibera por escrito antes de agir, cumpre pedidos com mais de uma
+ação sem sair do modelo de `Decision` atômica, aprende com a conversa
+inteira ao fechar uma sessão (não só turno a turno), enxerga o que ele
+mesmo acabou de ler, e sobrevive a uma interrupção no meio de um objetivo.
 
 ---
 
@@ -2245,6 +2271,12 @@ TTS
 | 2026-08-17 | 9.3 | ✅ | `feat: add memory-aware conditional triggers` |
 | 2026-08-17 | 9.4 | ✅ | `feat: integrate goal pursuit and memory-aware proactivity` |
 | 2026-08-17 | 9.5 | ✅ | `docs: document goal pursuit and memory-aware proactivity` |
+| 2026-08-17 | 10.1 | ✅ | `feat: add reasoning field to agent decisions` |
+| 2026-08-17 | 10.2 | ✅ | `feat: allow multiple actions per user request in ask and chat` |
+| 2026-08-17 | 10.3 | ✅ | `feat: reflect and remember at session end` |
+| 2026-08-17 | 10.4 | ✅ | `feat: let read skills report content, not just byte counts` |
+| 2026-08-17 | 10.5 | ✅ | `feat: add checkpoint and resume to the goal pursuit loop` |
+| 2026-08-17 | 10.6 | ✅ | `docs: document deliberation, multi-action and continuity` |
 
 ---
 
