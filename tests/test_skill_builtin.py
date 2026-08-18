@@ -61,7 +61,7 @@ def by_name(name: str) -> Skill:
 
 
 class TestCatalog:
-    def test_the_ten_skills_are_registered(self) -> None:
+    def test_the_twelve_skills_are_registered(self) -> None:
         registry = register_builtin_skills(SkillRegistry())
 
         assert set(registry.names()) == {
@@ -75,6 +75,8 @@ class TestCatalog:
             "computer.close_app",
             "computer.run_command",
             "memory.forget",
+            "tasks.list_pending",
+            "decisions.recent",
         }
 
     def test_reading_is_low_risk_and_never_asks(self) -> None:
