@@ -12,6 +12,9 @@ import pytest
 
 from jarvis import cli
 from jarvis.cli import main
+from jarvis.memory.adapters.sqlite_repository import SqliteMemoryRepository
+from jarvis.memory.manager import MemoryManager
+from jarvis.memory.memory import MemoryOrigin, MemoryType, Provenance
 from tests.agent_doubles import StubLLMProvider, decision_json
 
 
@@ -536,3 +539,71 @@ class TestAgentExecute:
         assert main(["agent", "ask", "apague tudo", "--execute"]) == 0
 
         assert "skill_not_registered" in capsys.readouterr().out
+
+
+class TestAgentExecuteMemoryForget:
+    """`memory.forget` (Fase 11.4) de ponta a ponta: negada por padrão,
+    executada de verdade quando concedida — mesma cadeia real das demais
+    Skills (Policy Engine → Skill → `ReflectionToolBackend`)."""
+
+    def test_denied_by_default(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        provider = StubLLMProvider(
+            [
+                decision_json(
+                    type="act",
+                    message=None,
+                    action={
+                        "skill": "memory.forget",
+                        "parameters": {"memory_id": "m1", "reason": "não é mais verdade"},
+                    },
+                ),
+                decision_json(type="notify", message="não posso esquecer sem permissão"),
+            ]
+        )
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+
+        assert main(["agent", "ask", "esqueça isso", "--execute"]) == 0
+
+        assert "status      denied" in capsys.readouterr().out
+
+    def test_forgetting_a_real_memory_when_the_capability_is_granted(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        isolated_data_dir: Path,
+    ) -> None:
+        monkeypatch.setenv("JARVIS_POLICY_GRANTED_CAPABILITIES", "memory:forget")
+        memory_db = isolated_data_dir / "memory.db"
+        with SqliteMemoryRepository.open(memory_db) as repository:
+            stored = MemoryManager(repository=repository).remember(
+                type=MemoryType.PREFERENCE,
+                content="prefere reuniões pela manhã",
+                provenance=Provenance(origin=MemoryOrigin.USER),
+                subject="reuniao.horario",
+            )
+        memory_id = stored.memory.memory_id
+
+        provider = StubLLMProvider(
+            [
+                decision_json(
+                    type="act",
+                    message=None,
+                    action={
+                        "skill": "memory.forget",
+                        "parameters": {"memory_id": memory_id, "reason": "não é mais verdade"},
+                    },
+                )
+            ]
+        )
+        monkeypatch.setattr(cli, "build_llm_provider", lambda settings: provider)
+
+        assert main(["agent", "ask", "esqueça minha preferência de horário", "--execute"]) == 0
+
+        out = capsys.readouterr().out
+        assert "status      completed" in out
+        with SqliteMemoryRepository.open(memory_db) as repository:
+            reloaded = repository.get(memory_id)
+        assert reloaded is not None
+        assert reloaded.invalidated_at is not None

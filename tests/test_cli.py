@@ -733,6 +733,7 @@ class TestAgent:
             "computer.open_app",
             "computer.close_app",
             "computer.run_command",
+            "memory.forget",
         }
         # O schema viaja junto: sem ele o modelo acerta o nome e erra os campos.
         by_name = {item["name"]: item for item in envelope["available_capabilities"]}

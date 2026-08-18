@@ -61,7 +61,7 @@ def by_name(name: str) -> Skill:
 
 
 class TestCatalog:
-    def test_the_nine_skills_are_registered(self) -> None:
+    def test_the_ten_skills_are_registered(self) -> None:
         registry = register_builtin_skills(SkillRegistry())
 
         assert set(registry.names()) == {
@@ -74,6 +74,7 @@ class TestCatalog:
             "computer.open_app",
             "computer.close_app",
             "computer.run_command",
+            "memory.forget",
         }
 
     def test_reading_is_low_risk_and_never_asks(self) -> None:
@@ -96,7 +97,8 @@ class TestCatalog:
         for skill in builtin_skills():
             assert skill.descriptor.required_tools
             assert all(
-                item.startswith(("local:", "computer:")) for item in skill.descriptor.required_tools
+                item.startswith(("local:", "computer:", "reflection:"))
+                for item in skill.descriptor.required_tools
             )
 
     def test_no_skill_is_a_generic_do_anything(self) -> None:
