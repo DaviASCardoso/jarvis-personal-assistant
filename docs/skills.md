@@ -18,7 +18,8 @@ src/jarvis/skills/
 ├── errors.py     # SkillError, SkillInputError, SkillExecutionError, UnknownSkillError
 └── builtin/      # system.status, file.read, file.list, file.write,
                   # computer.list_processes, computer.focus_window,
-                  # computer.open_app, computer.close_app, computer.run_command
+                  # computer.open_app, computer.close_app, computer.run_command,
+                  # memory.forget, tasks.list_pending, decisions.recent
 ```
 
 Este pacote **não** importa `jarvis.policy.engine`, `jarvis.agent` nem
@@ -118,11 +119,14 @@ Uma delas afrouxada por engano não abre o caminho inteiro.
 Registro **explícito**, feito pelo composition root (`register_builtin_skills`).
 Não há varredura de módulos nem entry points: descobrir capacidades importando
 código arbitrário é superfície de ataque e efeito colateral em import, e nada
-disso se paga com nove Skills. As cinco de computador (Fase 8.2, ver
-[`docs/computer.md`](computer.md)) seguem o mesmo desenho: `risk`/`effects`
+disso se paga com um catálogo deste tamanho. As cinco de computador (Fase 8.2,
+ver [`docs/computer.md`](computer.md)) seguem o mesmo desenho: `risk`/`effects`
 sobem até `HIGH`/`DESTRUCTIVE` para `computer.close_app`/`computer.run_command`,
 e nenhuma das cinco capacidades novas (`computer:read`/`open`/`close`/`run`)
-entra na allowlist default de `JARVIS_POLICY_GRANTED_CAPABILITIES`.
+entra na allowlist default de `JARVIS_POLICY_GRANTED_CAPABILITIES`. As três de
+autorreflexão (Fase 11.4–11.6 — ver seção própria abaixo) seguem a mesma
+convenção: `memory:forget`/`tasks:read`/`decisions:read` também ficam fora do
+default.
 
 O registry serve às duas pontas da mesma garantia (`PHASE-5.md §26`): decide o
 que o modelo **vê** (a lista de capacidades no envelope) e o que o executor
@@ -158,6 +162,32 @@ declara exatamente uma ferramenta, e o `ToolAccess` recusa o resto.
 explicitamente fora do escopo da Fase 5. A arquitetura as suporta: um MCP Server
 de Gmail ou Calendar registrado em `mcp.json` expõe tools novas sem uma linha de
 código no Core. Ver `docs/phase-5-plan.md §33` (V-1).
+
+### Autorreflexão (Fase 11.4–11.6)
+
+| Skill | Tool | capacidade | risco | efeitos | confirmação | idempotência |
+|---|---|---|---|---|---|---|
+| `memory.forget` | `reflection:forget_memory` | `memory:forget` | `medium` | write | conditional | safe |
+| `tasks.list_pending` | `reflection:list_pending_tasks` | `tasks:read` | `none` | read | never | safe |
+| `decisions.recent` | `reflection:recent_decisions` | `decisions:read` | `none` | read | never | safe |
+
+As três compõem `ReflectionToolBackend` (`tools/adapters/reflection_backend.py`,
+Fase 11.3) — o mesmo caminho Skill → Policy → Tool de qualquer outra Skill,
+dando ao agente acesso ao próprio estado operacional (memória, tarefas em
+segundo plano, decisões) por qualquer canal, voz incluída, sem nenhum código
+específico de voz.
+
+`memory.forget` é a única das três que escreve, e é a única exceção pontual à
+regra de que um Tool nunca conhece Memory (`architecture-contracts.md §3.7`).
+Ela existe apesar do [ADR-0018](adr/0018-memory-writes-outside-the-policy-engine.md)
+já ter rejeitado tratar **criação** de memória (`remember`) como Skill — o
+[ADR-0034](adr/0034-forget-memory-as-a-policy-gated-skill.md) explica por que
+**esquecer** é o caso em que essa conclusão muda: apagar é uma operação
+destrutiva sobre o que o agente vai saber depois, e o vocabulário de
+`capability`/`risk`/`effect` do Policy Engine descreve isso corretamente, ao
+contrário do que descreveria para uma criação. `remember` continua exatamente
+como o ADR-0018 descreve: fora do Policy Engine, aplicado direto pelo
+composition root via `Decision.memory`.
 
 ## Ciclo de execução
 

@@ -21,12 +21,13 @@ src/jarvis/tools/
 ├── router.py     # ToolRouter, ToolRetryPolicy
 ├── access.py     # ToolAccess
 └── adapters/
-    ├── local_backend.py    # fs.read_text, fs.write_text, fs.list_dir, system.info
-    ├── computer_backend.py # list_processes, focus_window, open_app, close_app, run_command (Fase 8.2)
-    ├── mcp_config.py       # mcp.json, ambiente mínimo do processo filho
-    ├── mcp_protocol.py     # JSON-RPC 2.0, handshake, tradução de schema e resultado
-    ├── mcp_stdio.py        # transporte: subprocesso + thread leitora
-    └── mcp_client.py       # McpToolBackend
+    ├── local_backend.py      # fs.read_text, fs.write_text, fs.list_dir, system.info
+    ├── computer_backend.py   # list_processes, focus_window, open_app, close_app, run_command (Fase 8.2)
+    ├── reflection_backend.py # forget_memory, list_pending_tasks, recent_decisions (Fase 11.3)
+    ├── mcp_config.py         # mcp.json, ambiente mínimo do processo filho
+    ├── mcp_protocol.py       # JSON-RPC 2.0, handshake, tradução de schema e resultado
+    ├── mcp_stdio.py          # transporte: subprocesso + thread leitora
+    └── mcp_client.py         # McpToolBackend
 ```
 
 `ComputerToolBackend` (Fase 8.2) é mais um `ToolBackend`, ao lado do local e
@@ -34,6 +35,16 @@ do MCP — nenhum contrato novo, mesmo port. Ver
 [`computer.md`](computer.md) para o que ele expõe e
 [ADR-0031](adr/0031-command-allowlist-execution-model.md) para o modelo de
 allowlist que `open_app`/`run_command` exigem.
+
+`ReflectionToolBackend` (Fase 11.3) é diferente dos outros dois: as três
+operações que expõe são **injetadas** como função — quem abre/fecha a conexão
+com `SqliteMemoryRepository`/`SqliteTaskRepository`/`SqliteEventStore` é
+sempre `cli.py`, único lugar autorizado a conhecer esses adapters
+(`test_only_the_composition_root_wires_*_adapters`). O backend em si só
+conhece tipos de domínio (`StoredMemory`/`BackgroundTask`/`DecisionRecord`).
+É também a única exceção documentada à regra "nenhum `ToolBackend` conhece
+Memory" (`architecture-contracts.md §3.7`) — ver
+[ADR-0034](adr/0034-forget-memory-as-a-policy-gated-skill.md).
 
 Este pacote **não** importa `jarvis.policy` nem `jarvis.skills`. O router assume
 que a chamada já foi autorizada; quem torna essa suposição verdadeira é o

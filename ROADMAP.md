@@ -11,7 +11,7 @@
 
 # Visão geral
 
-O sistema será construído em oito fases (as Fases 9 e 10 são adições
+O sistema será construído em oito fases (as Fases 9, 10 e 11 são adições
 pós-v0.1, ver nota nas próprias seções — não faziam parte do plano original
 de 16 semanas):
 
@@ -26,6 +26,7 @@ de 16 semanas):
 - [x] **Fase 8 — Integration + Hardening**
 - [x] **Fase 9 — Deepening Reasoning + Autonomy** (adicionada pós-v0.1)
 - [x] **Fase 10 — Deliberation, Multi-Action & Continuity** (adicionada pós-v0.1)
+- [x] **Fase 11 — Voice Parity & Self-Awareness Skills** (adicionada pós-v0.1)
 
 ## Metodologia de desenvolvimento
 
@@ -1801,6 +1802,167 @@ docs: document deliberation, multi-action and continuity
 
 ---
 
+# FASE 11 — VOICE PARITY & SELF-AWARENESS SKILLS
+
+> Fase acrescentada depois da Fase 10, mesmo precedente de anotar em vez de
+> reescrever o histórico original. Escopo: usuário revisou o que a voz ainda
+> não tinha que o CLI já tinha (raciocínio multi-passo — "o objetivo é o
+> Jarvis de filme, inteiro por voz"), mais três lacunas de autorreflexão
+> reformuladas como Skills normais em vez de comandos específicos de voz
+> (gestão de memória, visibilidade de tarefas, consulta a decisões).
+> Integrações externas continuam fora (mesmo motivo da Fase 10). Pedido
+> explícito do usuário: bastante commit, mais granular que o lote anterior.
+> Plano completo desta sessão, com pesquisa prévia de código citada
+> arquivo:linha em cada subfase.
+
+## 11.1 — `AgentLoopResult`
+
+- [x] Nova dataclass `AgentLoopResult(turn, write, outcome)` — `_run_agent_loop`
+      passa a devolver isso em vez de uma tupla posicional
+- [x] Turno de reflexão (`_reflect_on_outcome`), quando existe, vira o
+      `last_turn`/`last_write` do próprio loop, com a mesma disciplina de
+      persistência dos demais passos — antes só era impresso
+      (`_explain_outcome`, removida por ficar sem chamador) e se perdia
+- [x] `_agent_chat` ajustado para `result.turn`/`result.write`; `_agent_ask`/
+      `_agent_pursue` não precisaram de mudança (descartavam o retorno)
+- [x] Testes de paridade (suíte inteira sem alteração de comportamento) +
+      teste novo provando que a reflexão de uma ação negada chega à
+      `Conversation` (`test_cli_agent_loop_result.py`)
+
+**Commits:**
+
+```text
+feat: loop de agente devolve o turno de reflexao (Fase 11.1)
+test: paridade e cobertura de AgentLoopResult (Fase 11.1)
+```
+
+---
+
+## 11.2 — Voice Reasoning Loop
+
+- [x] `RuntimeConversationalAgent.respond()` passa a chamar `_run_agent_loop`
+      em vez de `runtime.handle()` + submissão manual de um turno só —
+      raciocínio multi-passo, checkpoint de progresso e explicação em
+      linguagem natural chegam à voz sem nenhum código específico de voz
+- [x] Nova config `voice_pursue_max_steps: int = 3` (menor que
+      `agent_pursue_max_steps=6` — latência de fala importa mais que por
+      texto)
+- [x] `_spoken_outcome` corrigido para preferir a explicação da reflexão ao
+      template fixo também em `denied`/falha, não só em
+      `awaiting_confirmation` — achado pelo próprio teste de paridade desta
+      subfase
+- [x] `_submit()` interno de `RuntimeConversationalAgent` removido,
+      redundante com a submissão que o loop já faz
+- [x] Primeira cobertura direta de `RuntimeConversationalAgent`
+      (`test_cli_voice_agent.py`): dois passos silenciosos numa fala só,
+      passo único ainda funciona, confirmação pendente ainda pausa com o
+      `execution_id` certo, negação fala linguagem natural, `execute=False`
+      nunca submete
+
+**Commits:**
+
+```text
+feat: raciocinio multi-passo por voz (Fase 11.2)
+fix: fala usa a explicacao da reflexao em negacao e falha (Fase 11.2)
+test: primeira cobertura direta de RuntimeConversationalAgent (Fase 11.2)
+```
+
+---
+
+## 11.3 — `ReflectionToolBackend`
+
+- [x] Três Tools novas (`reflection.forget_memory`,
+      `reflection.list_pending_tasks`, `reflection.recent_decisions`) dão a
+      uma Skill acesso a memória/tarefas/decisões — o único canal de
+      injeção que `SkillInvocation` recebe é `ToolAccess`
+- [x] Cada operação é **injetada** como função (mesmo desenho de
+      `ComputerToolBackend`), nunca abre um adapter concreto diretamente —
+      achado durante a implementação: os testes arquiteturais
+      (`test_only_the_composition_root_wires_*_adapters`) só deixam
+      `cli.py` conhecer `SqliteMemoryRepository`/`SqliteTaskRepository`/
+      `SqliteEventStore`; o backend em si só conhece tipos de domínio
+      (`StoredMemory`/`BackgroundTask`/`DecisionRecord`)
+- [x] Divergência real encontrada e sinalizada ao usuário: `ADR-0018` já
+      tinha rejeitado tratar escrita de memória como Skill via Policy
+      Engine — resolvida com **ADR-0034**, que mantém `remember` como está
+      (fora do Policy Engine) e trata `forget` diferente (Skill de verdade,
+      risco real) por ser uma operação destrutiva sobre o que o agente vai
+      saber depois. `architecture-contracts.md §3.7` ganhou a mesma
+      anotação pontual já usada para `ComputerToolBackend`
+- [x] Testes diretos do backend (`test_tool_reflection_backend.py`)
+
+**Commits:**
+
+```text
+feat: ReflectionToolBackend para memoria, tarefas e decisoes (Fase 11.3)
+test: cobertura de ReflectionToolBackend (Fase 11.3)
+docs: ADR-0034 -- forget vira Skill, remember continua fora do Policy (Fase 11.3)
+```
+
+---
+
+## 11.4 — Skill `memory.forget`
+
+- [x] Décima Skill do catálogo: `risk=MEDIUM`, `effects={WRITE}`,
+      `confirmation_requirement=CONDITIONAL` (mesmo critério de
+      `file.write`), `idempotency=SAFE` (invalidar o que já foi invalidado
+      não muda nada), `capabilities={"memory:forget"}` — negada por padrão,
+      mesma convenção de toda capacidade nova desde a Fase 8
+- [x] Testes unitários contra `ReflectionToolBackend` real + teste de ponta
+      a ponta (`agent ask "esqueça..." --execute`, negada por padrão e
+      executada de verdade quando a capacidade é concedida, provando que a
+      invalidação chega ao SQLite)
+
+**Commits:**
+
+```text
+feat: Skill memory.forget, negada por padrao (Fase 11.4)
+test: cobertura de memory.forget, unitaria e de ponta a ponta (Fase 11.4)
+```
+
+---
+
+## 11.5/11.6 — Skills `tasks.list_pending` e `decisions.recent`
+
+- [x] Décima primeira e décima segunda Skills: mesmo perfil de
+      `system.status` (`risk=NONE`, `effects={READ}`,
+      `confirmation_requirement=NEVER`, `idempotency=SAFE`) —
+      `capabilities` (`tasks:read`/`decisions:read`) negadas por padrão
+- [x] Testes unitários contra `ReflectionToolBackend` real (`decisions.recent`
+      injeta `DecisionRecord` direto — `project_decisions` já tem cobertura
+      própria)
+
+**Commits:**
+
+```text
+feat: Skills tasks.list_pending e decisions.recent (Fase 11.5/11.6)
+test: cobertura de tasks.list_pending e decisions.recent (Fase 11.5/11.6)
+```
+
+---
+
+## 11.7 — Documentação
+
+- [x] `docs/agent-runtime.md` (`AgentLoopResult`, loop de voz, três Skills
+      novas, `voice_pursue_max_steps`), `docs/voice.md` (nova seção sobre
+      raciocínio multi-passo, o que ficou de fora — checkpoint/resume por
+      voz), `docs/skills.md` (catálogo com as três Skills de
+      autorreflexão), `docs/mcp.md` (`ReflectionToolBackend` no catálogo de
+      backends), `README.md` (status, exemplos novos)
+- [x] `ROADMAP.md` fechado subfase a subfase, M11 acrescentado
+
+**Commit esperado:**
+
+```text
+docs: document voice parity and self-awareness skills
+```
+
+### Fase 11 completa
+
+- [x] **FASE 11 CONCLUÍDA**
+
+---
+
 # MARCOS PRINCIPAIS
 
 ## M0 — Foundation
@@ -1985,6 +2147,27 @@ O sistema delibera por escrito antes de agir, cumpre pedidos com mais de uma
 ação sem sair do modelo de `Decision` atômica, aprende com a conversa
 inteira ao fechar uma sessão (não só turno a turno), enxerga o que ele
 mesmo acabou de ler, e sobrevive a uma interrupção no meio de um objetivo.
+
+---
+
+## M11 — Voice Parity & Self-Awareness Skills
+
+**Pós-v0.1 (adicionada fora do plano original de 16 semanas)**
+
+```text
+[x] AgentLoopResult
+[x] Voice Reasoning Loop
+[x] ReflectionToolBackend
+[x] Skill memory.forget
+[x] Skills tasks.list_pending / decisions.recent
+[x] Documentation
+```
+
+A voz raciocina em múltiplos passos como o CLI, sem narrar cada passo
+intermediário, e fala a explicação em linguagem natural de uma negação em
+vez de um template fixo. O agente ganha acesso ao próprio estado
+operacional (memória, tarefas, decisões) pelo caminho normal de Skill, em
+qualquer canal — sem nenhum comando específico de voz.
 
 ---
 
@@ -2277,6 +2460,12 @@ TTS
 | 2026-08-17 | 10.4 | ✅ | `feat: let read skills report content, not just byte counts` |
 | 2026-08-17 | 10.5 | ✅ | `feat: add checkpoint and resume to the goal pursuit loop` |
 | 2026-08-17 | 10.6 | ✅ | `docs: document deliberation, multi-action and continuity` |
+| 2026-08-17 | 11.1 | ✅ | `feat: loop de agente devolve o turno de reflexao (Fase 11.1)` + `test: paridade e cobertura de AgentLoopResult (Fase 11.1)` |
+| 2026-08-17 | 11.2 | ✅ | `feat: raciocinio multi-passo por voz (Fase 11.2)` + `fix: fala usa a explicacao da reflexao em negacao e falha (Fase 11.2)` + `test: primeira cobertura direta de RuntimeConversationalAgent (Fase 11.2)` |
+| 2026-08-17 | 11.3 | ✅ | `feat: ReflectionToolBackend para memoria, tarefas e decisoes (Fase 11.3)` + `test: cobertura de ReflectionToolBackend (Fase 11.3)` + `docs: ADR-0034 -- forget vira Skill, remember continua fora do Policy (Fase 11.3)` |
+| 2026-08-17 | 11.4 | ✅ | `feat: Skill memory.forget, negada por padrao (Fase 11.4)` + `test: cobertura de memory.forget, unitaria e de ponta a ponta (Fase 11.4)` |
+| 2026-08-17 | 11.5/11.6 | ✅ | `feat: Skills tasks.list_pending e decisions.recent (Fase 11.5/11.6)` + `test: cobertura de tasks.list_pending e decisions.recent (Fase 11.5/11.6)` |
+| 2026-08-17 | 11.7 | ✅ | `docs: document voice parity and self-awareness skills` |
 
 ---
 

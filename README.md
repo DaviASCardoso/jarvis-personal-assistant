@@ -3,10 +3,11 @@
 Agente pessoal de IA, construído de forma incremental e orientado a eventos,
 contexto e memória.
 
-> **Status:** Fase 8 — Integration + Hardening concluída (v0.1); Fase 9 —
-> Deepening Reasoning + Autonomy e Fase 10 — Deliberation, Multi-Action &
-> Continuity concluídas (adições pós-v0.1, fora das oito fases originais —
-> ver `ROADMAP.md`). O Jarvis registra
+> **Status:** Fase 8 — Integration + Hardening concluída (v0.1); Fases 9, 10 e
+> 11 — Deepening Reasoning + Autonomy, Deliberation, Multi-Action &
+> Continuity, e Voice Parity & Self-Awareness Skills concluídas (adições
+> pós-v0.1, fora das oito fases originais — ver `ROADMAP.md`). O Jarvis
+> registra
 > acontecimentos como fatos imutáveis, os projeta em um estado atual consultável,
 > lembra (memórias tipadas, com proveniência, validade e ranking explicável),
 > raciocina sobre tudo isso com um LLM atrás de um port vendor-agnóstico e
@@ -44,6 +45,16 @@ contexto e memória.
 > leitura deixam de esconder o próprio conteúdo do agente; e o Goal Pursuit
 > Loop ganha checkpoint/resume (`--resume <pursuit_id>`), estado operacional
 > apagável fora do Event Store — [ADR-0033](docs/adr/0033-pursuit-state-as-operational-store.md).
+>
+> A Fase 11 leva o raciocínio multi-passo e a explicação em linguagem
+> natural (Fase 10/11.1) até a **voz**: um pedido falado que precisa de mais
+> de uma ação já não fala cada passo, só o desfecho final. Três Skills novas
+> de autorreflexão (`memory.forget`, `tasks.list_pending`,
+> `decisions.recent`) dão ao agente acesso ao próprio estado operacional por
+> qualquer canal, negadas por padrão como qualquer capacidade nova —
+> [ADR-0034](docs/adr/0034-forget-memory-as-a-policy-gated-skill.md) explica
+> por que esquecer uma memória passa pelo Policy Engine enquanto criar uma
+> continua fora dele.
 > Planejamento completo em [ROADMAP.md](ROADMAP.md).
 
 ## Requisitos
@@ -143,6 +154,11 @@ uv run jarvis agent pursue "organize os arquivos da pasta" --max-steps 4
 # Fase 10.5: se parar (confirmação pendente, teto de passos), retoma depois
 uv run jarvis agent pursue --resume <pursuit_id>
 uv run jarvis agent pursue --resume <pursuit_id> "considere também isto"
+
+# Fase 11.4-11.6: autorreflexão — capacidade negada por padrão, como qualquer
+# capacidade nova; conceder em JARVIS_POLICY_GRANTED_CAPABILITIES
+uv run jarvis agent ask "o que está pendente?" --execute
+uv run jarvis agent ask "esqueça minha preferência de horário" --execute
 ```
 
 O agente monta contexto + memória + conversa, chama o LLM através de um port
@@ -254,6 +270,12 @@ encerra. Para chamar pelo nome, `JARVIS_WAKE_STRATEGY=transcription`.
 Interromper a resposta falando por cima funciona, e pressupõe fone —
 sem ele o alto-falante alimenta o microfone (`JARVIS_VOICE_BARGE_IN=false`
 desliga). Detalhes em [`docs/voice.md`](docs/voice.md).
+
+Desde a Fase 11.2, um pedido falado que precisa de mais de uma ação
+raciocina em múltiplos passos como `agent pursue` (mesmos critérios de
+parada, teto próprio em `JARVIS_VOICE_PURSUE_MAX_STEPS`, default 3) — só
+que sem narrar cada passo: os intermediários ficam silenciosos, e só o
+desfecho final vira fala.
 
 ### Painel
 

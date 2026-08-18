@@ -425,6 +425,36 @@ Três extensões sobre o mesmo fechamento de loop, todas no composition root
   ADR-0014 para `PendingAction`) — ver
   [ADR-0033](adr/0033-pursuit-state-as-operational-store.md).
 
+## Paridade de voz e autorreflexão (Fase 11)
+
+- **`AgentLoopResult` (11.1).** `_run_agent_loop` devolvia uma tupla
+  posicional (`AgentTurn`, `MemoryWrite`) — o `ExecutionOutcome` do último
+  passo nunca saía da função, e quando o loop parava por confirmação
+  pendente ou negação, o turno de reflexão (`_reflect_on_outcome`) era só
+  **impresso** (`_explain_outcome`), nunca devolvido. Agora o loop devolve
+  `AgentLoopResult(turn, write, outcome)`, e o turno de reflexão — quando
+  existe — vira o próprio `turn` do resultado, com a mesma disciplina de
+  persistência dos demais passos. `_explain_outcome` foi removida por ficar
+  sem chamador; o mesmo print de sempre agora acontece inline em
+  `_run_agent_loop`.
+- **Raciocínio multi-passo por voz (11.2).** `RuntimeConversationalAgent
+  .respond()` passa a chamar `_run_agent_loop` (com `voice_pursue_max_steps`
+  como teto, menor que `agent_pursue_max_steps` por causa da latência de
+  fala) em vez de um `runtime.handle()` + submissão manual de um turno só.
+  Como o loop só imprime progresso intermediário — nunca fala — os passos
+  que não são o último ficam naturalmente silenciosos: uma frase falada só,
+  refletindo o `AgentLoopResult` final. `_spoken_outcome` passou a preferir
+  a explicação da reflexão ao template fixo em negação/falha, não só em
+  confirmação pendente. Detalhe completo, incluindo o que ficou de fora
+  (checkpoint/resume por voz): [voice.md](voice.md).
+- **Três Skills de autorreflexão (11.3–11.6).** `memory.forget`,
+  `tasks.list_pending` e `decisions.recent` dão ao agente acesso ao próprio
+  estado operacional pelo caminho normal (Skill → Policy → Tool), então
+  ficam disponíveis em qualquer canal — voz inclusive — sem nenhum código
+  específico de canal. Catálogo completo, incluindo por que `memory.forget`
+  passa pelo Policy Engine enquanto `remember` continua fora dele:
+  [skills.md](skills.md#autorreflexão-fase-114116).
+
 ## Documentos relacionados
 
 - Contrato normativo: [architecture-contracts.md §3.4](architecture-contracts.md#34-agent-runtime)
@@ -433,5 +463,6 @@ Três extensões sobre o mesmo fechamento de loop, todas no composition root
 - Adapter Gemini: [ADR-0011](adr/0011-gemini-rest-llm-adapter.md)
 - Decisão estruturada: [ADR-0012](adr/0012-core-owned-structured-decisions.md)
 - Checkpoint/resume do Goal Pursuit Loop: [ADR-0033](adr/0033-pursuit-state-as-operational-store.md)
+- `memory.forget` como Skill sujeita ao Policy Engine: [ADR-0034](adr/0034-forget-memory-as-a-policy-gated-skill.md)
 - Plano da fase: [phase-4-plan.md](phase-4-plan.md)
 - Visão geral: [architecture.md](architecture.md)

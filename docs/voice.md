@@ -186,7 +186,31 @@ viajam em header — nunca em query string, nunca em log, nunca em evento.
 
 ---
 
-## 9. Comandos
+## 9. Raciocínio multi-passo (Fase 11.2)
+
+Até a Fase 10, um turno de voz sempre chamava `runtime.handle(...)` uma
+única vez, sem `last_action_result` — nenhum turno de voz sabia o desfecho
+da ação anterior, e o que a voz falava sobre uma ação era sempre um
+template fixo (`_spoken_outcome`), nunca uma explicação do modelo. O CLI já
+tinha os dois desde a 9.1/10.2 (`_run_agent_loop`); a voz não.
+
+`RuntimeConversationalAgent.respond()` passa a chamar o mesmo
+`_run_agent_loop` que `agent ask`/`agent chat`/`agent pursue` usam — os
+mesmos cinco critérios de parada, o mesmo teto de passos (agora
+`voice_pursue_max_steps`, `3` por padrão — menor que `agent_pursue_max_steps`
+de propósito, porque latência de fala importa mais que por texto), e a
+mesma explicação em linguagem natural depois de uma negação ou confirmação
+pendente (Fase 11.1). Como `_run_agent_loop` só **imprime** progresso no
+terminal — nunca fala — os passos que não são o último ficam naturalmente
+silenciosos: uma frase falada só, refletindo o desfecho final, mesmo quando
+o pedido levou duas ou três ações para se resolver.
+
+**O que ficou de fora, deliberadamente:** checkpoint/resume (`PursuitState`,
+10.5) para o loop de voz. Não há um jeito natural de "ditar um `pursuit_id`"
+por voz, e a `VoiceSession` já carrega o histórico textual entre turnos
+separados — revisitar se um caso de uso real pedir isso.
+
+## 10. Comandos
 
 ```bash
 uv sync --extra voice            # habilita o áudio (ADR-0020)
@@ -208,7 +232,7 @@ do Jarvis continua funcionando.
 
 ---
 
-## 10. Limitações conhecidas
+## 11. Limitações conhecidas
 
 - **Sem streaming**: o turno é enunciado-a-enunciado. A latência é a soma de
   STT + LLM + TTS.
