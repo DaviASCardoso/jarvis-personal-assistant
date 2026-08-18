@@ -1835,23 +1835,6 @@ def _reflect_on_outcome(
     )
 
 
-def _explain_outcome(
-    runtime: AgentRuntime,
-    outcome: ExecutionOutcome,
-    *,
-    conversation_id: str,
-    recent: tuple[EventSummary, ...],
-) -> None:
-    follow_up = _reflect_on_outcome(
-        runtime, outcome, conversation_id=conversation_id, recent=recent
-    )
-    if follow_up is None:
-        return
-    print()
-    if follow_up.decision.message is not None:
-        print(f"agente      {follow_up.decision.message}")
-
-
 _SESSION_REFLECTION_PROMPT: Final = (
     "A conversa está encerrando. Considerando tudo que foi dito, há algum fato ou "
     "preferência que vale registrar como memória? Se não houver nada além do que já "
@@ -1897,6 +1880,23 @@ PursuitStepCallback = Callable[
 ]
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AgentLoopResult:
+    """O que `_run_agent_loop` devolve a quem chama (Fase 11.1) — o
+    suficiente para falar ou imprimir o desfecho, sem reabrir a `Decision`.
+
+    `turn` é o turno mais recente que vale comunicar: o que agiu, quando deu
+    certo, ou o turno de reflexão (`_reflect_on_outcome`), quando não deu —
+    nunca o turno bruto que só propôs uma ação negada/pendente sem explicar
+    por quê. `outcome` é o `ExecutionOutcome` do último passo submetido, se
+    algum passo chegou a submeter.
+    """
+
+    turn: AgentTurn
+    write: MemoryWrite
+    outcome: ExecutionOutcome | None = None
+
+
 def _run_agent_loop(
     settings: Settings,
     *,
@@ -1915,7 +1915,7 @@ def _run_agent_loop(
     last_result: ActionResultSummary | None = None,
     previous_proposal: PursuitProposal | None = None,
     on_step: PursuitStepCallback | None = None,
-) -> tuple[AgentTurn, MemoryWrite]:
+) -> AgentLoopResult:
     """Miolo comum de `agent ask`/`agent chat`/`agent pursue` (Fase 10.2).
 
     `Decision` continua atômica (ADR-0003 intacto): cada passo é uma proposta
@@ -1937,6 +1937,7 @@ def _run_agent_loop(
     multi_step = max_steps > 1
     last_turn: AgentTurn | None = None
     last_write = MemoryWrite()
+    last_outcome: ExecutionOutcome | None = None
 
     for step in range(start_step, max_steps + 1):
         if multi_step:
@@ -1979,10 +1980,27 @@ def _run_agent_loop(
         )
         if outcome is None:
             break
+        last_outcome = outcome
         print()
         _print_outcome(outcome)
-        _explain_outcome(runtime, outcome, conversation_id=conversation_id, recent=recent)
         this_result = _result_summary(outcome)
+
+        # Fase 11.1: o turno de reflexão (quando existe) vira `last_turn` —
+        # é ele que carrega a explicação em linguagem natural, não o turno
+        # cru que só propôs a ação. Mesma disciplina de persistência dos
+        # demais turnos do loop; mesmo print de sempre (antes emitido pela
+        # extinta `_explain_outcome`, agora inline para poder devolver o turno).
+        follow_up = _reflect_on_outcome(
+            runtime, outcome, conversation_id=conversation_id, recent=recent
+        )
+        if follow_up is not None:
+            follow_up_write = _persist_memory_proposal(
+                follow_up, memory_manager, provenance=USER_ASSERTION
+            )
+            print()
+            if follow_up.decision.message is not None:
+                print(f"agente      {follow_up.decision.message}")
+            last_turn, last_write = follow_up, follow_up_write
 
         if outcome.status is ExecutionStatus.AWAITING_CONFIRMATION:
             print(
@@ -2014,7 +2032,7 @@ def _run_agent_loop(
             on_step(max_steps, PursuitStatus.STOPPED_MAX_STEPS, last_result, previous_proposal)
 
     assert last_turn is not None  # o range roda ao menos uma vez (start_step <= max_steps)
-    return last_turn, last_write
+    return AgentLoopResult(turn=last_turn, write=last_write, outcome=last_outcome)
 
 
 def _agent_ask(args: argparse.Namespace, settings: Settings) -> int:
@@ -2072,7 +2090,7 @@ def _agent_chat(args: argparse.Namespace, settings: Settings) -> int:
             if not text:
                 continue
             now = datetime.now(UTC)
-            turn, write = _run_agent_loop(
+            result = _run_agent_loop(
                 settings,
                 store=store,
                 context=context,
@@ -2090,7 +2108,7 @@ def _agent_chat(args: argparse.Namespace, settings: Settings) -> int:
             )
             print()
             conversation = conversation.append(ConversationTurn(role=Role.USER, text=text, at=now))
-            reply = _reply(turn.decision, write)
+            reply = _reply(result.turn.decision, result.write)
             if reply is not None:
                 conversation = conversation.append(
                     ConversationTurn(role=Role.ASSISTANT, text=reply, at=now)
