@@ -724,27 +724,37 @@ class RuntimeConversationalAgent:
         self._bus = bus
 
     def respond(self, text: str, *, session: VoiceSession) -> AgentReply:
+        """Fase 11.2: passa pelo mesmo `_run_agent_loop` de `agent ask`/`chat`/
+        `pursue` — o raciocínio multi-passo (até `voice_pursue_max_steps`) e a
+        explicação em linguagem natural após negação/confirmação pendente
+        (Fase 11.1) chegam à voz sem nenhum código específico de voz. Como o
+        loop só **imprime** progresso intermediário (nunca fala), os passos
+        que não são o último ficam naturalmente silenciosos: uma frase falada
+        só, refletindo o desfecho final. `_run_agent_loop` já cuida de
+        registrar a decisão e persistir a proposta de memória de cada passo —
+        proveniência sem `reference` (Fase 7), mesmo motivo de sempre
+        (ADR-0018): um ponteiro por sessão faria `find_duplicate` tratar cada
+        conversa como um universo novo e trocaria reforço por linha nova.
+        """
         now = self._clock()
-        turn = self._runtime.handle(
-            UserMessage(text=text, at=now, conversation_id=session.session_id),
+        result = _run_agent_loop(
+            self._settings,
+            store=self._store,
+            context=self._context,
+            memory_manager=build_memory_manager(self._memories),
+            skills=self._skills,
+            runtime=self._runtime,
+            recent=_recent_events(self._store),
+            agent_input=UserMessage(text=text, at=now, conversation_id=session.session_id),
             conversation=_conversation_of(session),
-            recent_events=_recent_events(self._store),
-            capabilities=capabilities_from(self._skills),
+            conversation_id=session.session_id,
+            max_steps=self._settings.voice_pursue_max_steps,
+            execute=self._execute,
         )
-        _record_decision(
-            turn, context_as_of=self._context.current().as_of, store=self._store, bus=self._bus
-        )
-        # Mesma proveniência de `agent ask`, e por decisão reavaliada: mesmo com
-        # a sessão persistida, o caminho do usuário segue sem `reference`, porque
-        # um ponteiro por sessão faria `find_duplicate` tratar cada conversa como
-        # um universo novo e trocaria reforço por linha nova (ADR-0018).
-        write = _persist_memory_proposal(
-            turn, build_memory_manager(self._memories), provenance=USER_ASSERTION
-        )
+        turn, write, outcome = result.turn, result.write, result.outcome
         self._on_trace(_trace_of(turn, write=write, at=now))
 
         message = _reply(turn.decision, write)
-        outcome = self._submit(turn)
         if outcome is None:
             return AgentReply(
                 text=message,
@@ -808,17 +818,6 @@ class RuntimeConversationalAgent:
             text=_spoken_outcome(None, outcome),
             decision_type="act",
             correlation_id=outcome.correlation_id,
-        )
-
-    def _submit(self, turn: AgentTurn) -> ExecutionOutcome | None:
-        if not (self._execute and turn.decision.proposes_action):
-            return None
-        return _submit_proposal(
-            self._settings,
-            turn=turn,
-            store=self._store,
-            skills=self._skills,
-            actor=Actor.USER,
         )
 
 

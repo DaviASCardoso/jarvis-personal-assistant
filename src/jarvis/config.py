@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     # por turno) — ligada por padrão porque o custo é baixo frente ao ganho
     # de memória mais completa.
     agent_session_reflection_enabled: bool = True
+    # Fase 11.2: mesmo raciocínio multi-passo do Goal Pursuit Loop, mas por
+    # voz — teto menor que `agent_pursue_max_steps` de propósito, porque
+    # latência de fala importa mais que por texto.
+    voice_pursue_max_steps: int = 3
 
     # --- Fase 5: política, execução e tools -------------------------------
     # Listas chegam como texto separado por vírgula e são convertidas pelo
