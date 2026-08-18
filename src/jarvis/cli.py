@@ -835,14 +835,21 @@ def _conversation_of(session: VoiceSession) -> Conversation:
 
 
 def _spoken_outcome(message: str | None, outcome: ExecutionOutcome) -> str:
-    """O que o Jarvis diz sobre o desfecho de uma ação, em uma frase."""
+    """O que o Jarvis diz sobre o desfecho de uma ação, em uma frase.
+
+    Fase 11.2: em negação/falha, `message` é a explicação em linguagem
+    natural da reflexão (Fase 11.1), quando existe — preferida ao template
+    fixo, que agora só cobre o caso sem reflexão (`_reflect_on_outcome`
+    devolveu `None`, por exemplo quando a política nem chegou a negar).
+    """
     if outcome.status is ExecutionStatus.COMPLETED:
         return message or f"Pronto: {outcome.skill}."
     if outcome.status is ExecutionStatus.AWAITING_CONFIRMATION:
         return f"{message + ' ' if message else ''}Preciso da sua confirmação para {outcome.skill}."
     if outcome.status is ExecutionStatus.DENIED:
-        return f"Não posso fazer isso: {outcome.reason or 'a política negou'}."
-    return f"Não consegui concluir {outcome.skill}: {outcome.reason or 'falha na execução'}."
+        return message or f"Não posso fazer isso: {outcome.reason or 'a política negou'}."
+    fallback = f"Não consegui concluir {outcome.skill}: {outcome.reason or 'falha na execução'}."
+    return message or fallback
 
 
 def _trace_of(turn: AgentTurn, *, write: MemoryWrite, at: datetime) -> TurnTrace:
