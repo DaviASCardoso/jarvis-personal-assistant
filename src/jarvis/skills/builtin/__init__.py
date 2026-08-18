@@ -19,9 +19,11 @@ from jarvis.skills.builtin.computer import (
     open_app_skill,
     run_command_skill,
 )
+from jarvis.skills.builtin.decisions import recent_decisions_skill
 from jarvis.skills.builtin.files import list_directory_skill, read_file_skill, write_file_skill
 from jarvis.skills.builtin.memory import forget_memory_skill
 from jarvis.skills.builtin.system import system_status_skill
+from jarvis.skills.builtin.tasks import list_pending_tasks_skill
 from jarvis.skills.registry import SkillRegistry
 from jarvis.skills.skill import Skill
 
@@ -38,6 +40,8 @@ def builtin_skills() -> tuple[Skill, ...]:
         close_app_skill(),
         run_command_skill(),
         forget_memory_skill(),
+        list_pending_tasks_skill(),
+        recent_decisions_skill(),
     )
 
 
@@ -58,9 +62,11 @@ __all__ = [
     "focus_window_skill",
     "forget_memory_skill",
     "list_directory_skill",
+    "list_pending_tasks_skill",
     "list_processes_skill",
     "open_app_skill",
     "read_file_skill",
+    "recent_decisions_skill",
     "register_builtin_skills",
     "run_command_skill",
     "system_status_skill",
