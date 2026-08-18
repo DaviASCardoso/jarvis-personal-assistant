@@ -237,6 +237,15 @@ código deve rejeitar qualquer import que a viole.
 > aceitam um `name` de uma allowlist carregada pelo composition root, nunca
 > `argv` do chamador ([ADR-0031](adr/0031-command-allowlist-execution-model.md)).
 
+> `ReflectionToolBackend` (Fase 11.3) é uma exceção pontual à proibição de
+> conhecer Memory abaixo: três Tools que leem/invalidam o próprio estado
+> operacional do Jarvis (memória, tarefas em segundo plano, decisões) para
+> dar a uma Skill acesso a algo que só um Tool pode injetar
+> (`SkillInvocation` só recebe `ToolAccess`). Nunca abre a conexão SQLite
+> diretamente — cada operação é injetada pelo composition root, único lugar
+> que conhece os adapters concretos
+> ([ADR-0034](adr/0034-forget-memory-as-a-policy-gated-skill.md)).
+
 - **Responsabilidade:** rotear uma chamada de tool de uma Skill para o
   backend correto (MCP hoje; outros backends no futuro), normalizar
   resultados/erros, aplicar timeout, registrar execução.
@@ -248,8 +257,9 @@ código deve rejeitar qualquer import que a viole.
 - **Saídas:** `ToolResult` ou `ToolError` normalizado.
 - **Dependências permitidas:** Domain (contratos de `Tool`), MCP Client
   port, outros ports de backend de tool.
-- **Dependências proibidas:** LLM, Memory, Context, regras de negócio de
-  Policy, Skills.
+- **Dependências proibidas:** LLM, Context, regras de negócio de Policy,
+  Skills. Memory é proibida para o Tool Router genérico e para todo
+  `ToolBackend`, exceto `ReflectionToolBackend` (ver anotação acima).
 - **Responsável:** Tool Router.
 
 ### 3.8 MCP (Client)

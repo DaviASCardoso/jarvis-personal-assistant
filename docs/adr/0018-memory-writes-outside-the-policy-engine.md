@@ -3,6 +3,13 @@
 **Status:** Accepted
 **Data:** 2026-08-14
 
+> **Exceção pontual (Fase 11.4):** este ADR governa criação/reforço de
+> memória (`remember`, via `Decision.memory`) — continua exatamente como
+> descrito abaixo. Esquecer uma memória por pedido do agente (`forget`) foi
+> deliberadamente tratado diferente e passou a ser uma Skill sujeita ao
+> Policy Engine, não uma extensão deste caminho ungated — ver
+> [ADR-0034](0034-forget-memory-as-a-policy-gated-skill.md) para o porquê.
+
 ## Contexto
 
 `Decision.remember` existe desde a Fase 4 e nunca foi aplicada: o turno imprimia
