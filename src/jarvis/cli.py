@@ -175,6 +175,7 @@ from jarvis.tools.adapters.computer_backend import ComputerToolBackend, load_com
 from jarvis.tools.adapters.local_backend import LocalToolBackend
 from jarvis.tools.adapters.mcp_client import McpToolBackend
 from jarvis.tools.adapters.mcp_config import load_mcp_config
+from jarvis.tools.adapters.reflection_backend import ReflectionToolBackend
 from jarvis.tools.errors import ToolConfigurationError
 from jarvis.voice import (
     AgentReply,
@@ -370,6 +371,40 @@ def build_skill_registry() -> SkillRegistry:
     return register_builtin_skills(SkillRegistry())
 
 
+def _build_reflection_backend(settings: Settings) -> ReflectionToolBackend:
+    """Fase 11.3: as três operações injetadas são o único lugar, fora dos
+    próprios adapters, autorizado a abrir `SqliteMemoryRepository`/
+    `SqliteTaskRepository`/`SqliteEventStore` — `ReflectionToolBackend` em si
+    só conhece tipos de domínio (`StoredMemory`/`BackgroundTask`/
+    `DecisionRecord`), nunca um adapter concreto
+    (`test_only_the_composition_root_wires_*_adapters`).
+    """
+
+    def forget_memory(memory_id: str, reason: str) -> StoredMemory:
+        with SqliteMemoryRepository.open(memory_store_path(settings)) as repository:
+            manager = MemoryManager(repository=repository)
+            return manager.forget(memory_id, reason=reason)
+
+    def list_pending_tasks() -> Sequence[BackgroundTask]:
+        with SqliteTaskRepository.open(task_store_path(settings)) as repository:
+            return [
+                task
+                for status in (TaskStatus.PENDING, TaskStatus.RETRYING, TaskStatus.RUNNING)
+                for task in repository.list_by_status(status)
+            ]
+
+    def recent_decisions(limit: int) -> Sequence[DecisionRecord]:
+        with SqliteEventStore.open(event_store_path(settings)) as store:
+            events = store.read_by_type(DECISION_RECORDED, limit=limit)
+        return project_decisions(events)
+
+    return ReflectionToolBackend(
+        forget_memory=forget_memory,
+        list_pending_tasks=list_pending_tasks,
+        recent_decisions=recent_decisions,
+    )
+
+
 def build_tool_registry(settings: Settings) -> ToolRegistry:
     """Backends locais (`file`/`system` e `computer`) sempre; MCP Servers só se
     houver `mcp.json`.
@@ -387,6 +422,7 @@ def build_tool_registry(settings: Settings) -> ToolRegistry:
         else {}
     )
     registry.register_backend(ComputerToolBackend(command_allowlist=command_allowlist))
+    registry.register_backend(_build_reflection_backend(settings))
     if settings.mcp_config_path is not None:
         for spec in load_mcp_config(settings.mcp_config_path):
             if spec.enabled:
